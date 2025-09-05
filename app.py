@@ -11,6 +11,141 @@ import re
 # Set page title and icon
 st.set_page_config(page_title="Elo Ratings Odds Calculator", page_icon="odds_icon.png")
 
+# Dictionary of countries and leagues - RESTORED
+leagues_dict = {
+    "England": ["UK1", "UK2", "UK3", "UK4", "UK5", "UK6N", "UK6S", "UK7N"],
+    "Germany": ["DE1", "DE2", "DE3", "DE4SW", "DE4W", "DE4N", "DE4NO", "DE4B"],
+    "Italy": ["IT1", "IT2", "IT3C", "IT3B", "IT3A"],
+    "Spain": ["ES1", "ES2", "ES3G1", "ES3G2", "ES3G3", "ES3G4", "ES3G5"],
+    "France": ["FR1", "FR2", "FR3"],
+    "Sweden": ["SW1", "SW2", "SW3S", "SW3N"],
+    "Netherlands": ["NL1", "NL2", "NL3"],
+    "Russia": ["RU1", "RU2"],
+    "Portugal": ["PT1", "PT2"],
+    "Austria": ["AT1", "AT2", "AT3O", "AT3T", "AT3M", "AT3W", "AT3V"],
+    "Denmark": ["DK1", "DK2", "DK3G1", "DK3G2"],
+    "Greece": ["GR1", "GR2"],
+    "Norway": ["NO1", "NO2", "NO3G1", "NO3G2"],
+    "Czech Republic": ["CZ1", "CZ2"],
+    "Turkey": ["TU1", "TU2", "TU3B", "TU3K"],
+    "Belgium": ["BE1", "BE2"],
+    "Scotland": ["SC1", "SC2", "SC3", "SC4"],
+    "Switzerland": ["CH1", "CH2"],
+    "Finland": ["FI1", "FI2", "FI3A", "FI3B", "FI3C"],
+    "Ukraine": ["UA1", "UA2"],
+    "Romania": ["RO1", "RO2"],
+    "Poland": ["PL1", "PL2", "PL3"],
+    "Croatia": ["HR1", "HR2"],
+    "Belarus": ["BY1", "BY2"],
+    "Israel": ["IL1", "IL2"],
+    "Iceland": ["IS1", "IS2", "IS3", "IS4"],
+    "Cyprus": ["CY1", "CY2"],
+    "Serbia": ["CS1", "CS2"],
+    "Bulgaria": ["BG1", "BG2"],
+    "Slovakia": ["SK1", "SK2"],
+    "Hungary": ["HU1", "HU2"],
+    "Kazakhstan": ["KZ1", "KZ2"],
+    "Bosnia-Herzegovina": ["BA1"],
+    "Slovenia": ["SI1", "SI2"],
+    "Azerbaijan": ["AZ1"],
+    "Ireland": ["IR1", "IR2"],
+    "Latvia": ["LA1", "LA2"],
+    "Georgia": ["GE1", "GE2"],
+    "Kosovo": ["XK1"],
+    "Albania": ["AL1"],
+    "Lithuania": ["LT1", "LT2"],
+    "North-Macedonia": ["MK1"],
+    "Armenia": ["AM1"],
+    "Estonia": ["EE1", "EE2"],
+    "Northern-Ireland": ["NI1", "NI2"],
+    "Malta": ["MT1"],
+    "Luxembourg": ["LU1"],
+    "Wales": ["WL1"],
+    "Montenegro": ["MN1"],
+    "Moldova": ["MD1"],
+    "Färöer": ["FA1"],
+    "Gibraltar": ["GI1"],
+    "Andorra": ["AD1"],
+    "San-Marino": ["SM1"],
+    "Brazil": ["BR1", "BR2", "BR3", "BRC", "BRGA"],
+    "Mexico": ["MX1", "MX2"],
+    "Argentina": ["AR1", "AR2", "AR3F", "AR5", "AR3", "AR4"],
+    "USA": ["US1", "US2", "US3"],
+    "Colombia": ["CO1", "CO2"],
+    "Ecuador": ["EC1", "EC2"],
+    "Paraguay": ["PY1", "PY2"],
+    "Chile": ["CL1", "CL2"],
+    "Uruguay": ["UY1", "UY2"],
+    "Costa-Rica": ["CR1", "CR2"],
+    "Bolivia": ["BO1"],
+    "Guatemala": ["GT1", "GT2"],
+    "Dominican-Rep.": ["DO1"],
+    "Honduras": ["HN1"],
+    "Venezuela": ["VE1"],
+    "Peru": ["PE1", "PE2"],
+    "Panama": ["PA1"],
+    "El-Salvador": ["SV1"],
+    "Jamaica": ["JM1"],
+    "Nicaragua": ["NC1"],
+    "Canada": ["CA1"],
+    "Haiti": ["HT1"],
+    "Japan": ["JP1", "JP2", "JP3"],
+    "South-Korea": ["KR1", "KR2", "KR3"],
+    "China": ["CN1", "CN2", "CN3"],
+    "Iran": ["IA1", "IA2"],
+    "Australia": ["AU1", "AU2V", "AU2NSW", "AU2Q", "AU2S", "AU2W", "AU3V", "AU3NSW", "AU2T", "AU2NOR", "AU3Q", "AU2CAP", "AU3S"],
+    "Saudi-Arabia": ["SA1", "SA2"],
+    "Thailand": ["TH1", "TH2"],
+    "Qatar": ["QA1", "QA2"],
+    "United Arab Emirates": ["AE1", "AE2"],
+    "Indonesia": ["ID1", "ID2"],
+    "Jordan": ["JO1"],
+    "Syria": ["SY1"],
+    "Uzbekistan": ["UZ1"],
+    "Malaysia": ["MY1", "MY2"],
+    "Vietnam": ["VN1", "VN2"],
+    "Iraq": ["IQ1"],
+    "Kuwait": ["KW1"],
+    "Bahrain": ["BH1"],
+    "Myanmar": ["MM1"],
+    "Palestine": ["PS1"],
+    "India": ["IN1", "IN2"],
+    "New Zealand": ["NZ1"],
+    "Hong Kong": ["HK1", "HK2"],
+    "Oman": ["OM1"],
+    "Taiwan": ["TW1"],
+    "Tajikistan": ["TJ1"],
+    "Turkmenistan": ["TM1"],
+    "Lebanon": ["LB1"],
+    "Bangladesh": ["BD1"],
+    "Singapore": ["SG1"],
+    "Cambodia": ["KH1"],
+    "Kyrgyzstan": ["KG1"],
+    "Egypt": ["EG1", "EG2"],
+    "Algeria": ["DZ1", "DZ2"],
+    "Tunisia": ["TN1", "TN2"],
+    "Morocco": ["MA1", "MA2"],
+    "South-Africa": ["ZA1", "ZA2"],
+    "Kenya": ["KE1", "KE2"],
+    "Zambia": ["ZM1"],
+    "Ghana": ["GH1"],
+    "Nigeria": ["NG1"],
+    "Uganda": ["UG1"],
+    "Burundi": ["BI1"],
+    "Rwanda": ["RW1"],
+    "Cameroon": ["CM1"],
+    "Tanzania": ["TZ1"],
+    "Gambia": ["GM1"],
+    "Sudan": ["SD1"]
+}
+spinner_messages = [
+    "Fetching the latest football ratings...",
+    "Hold tight, we're gathering the data...",
+    "Just a moment, crunching the numbers...",
+    "Loading the football magic...",
+    "Almost there, preparing the stats..."
+]
+
 # --- Data Fetching and Parsing Functions ---
 
 @st.cache_data(ttl=3600) # Cache data for 1 hour
@@ -189,7 +324,7 @@ if st.session_state.get('data_fetched', False):
                 st.metric(label="League Position", value=f"#{int(home_stats.iloc[0])}")
                 st.metric(label="Goals For", value=goals_for.strip())
                 st.metric(label="Goals Against", value=goals_against.strip())
-        except (IndexError, ValueError):
+        except (IndexError, ValueError, KeyError):
             stat_col1.warning(f"Home stats not available for {home_team_name}.")
 
         try:
@@ -200,7 +335,7 @@ if st.session_state.get('data_fetched', False):
                 st.metric(label="League Position", value=f"#{int(away_stats.iloc[0])}")
                 st.metric(label="Goals For", value=goals_for.strip())
                 st.metric(label="Goals Against", value=goals_against.strip())
-        except (IndexError, ValueError):
+        except (IndexError, ValueError, KeyError):
             stat_col2.warning(f"Away stats not available for {away_team_name}.")
     
     # --- Odds Calculation ---
@@ -283,3 +418,4 @@ if st.session_state.get('data_fetched', False):
 
 else:
     st.info("Please click 'Get Ratings' in the sidebar to begin.")
+
