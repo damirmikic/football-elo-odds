@@ -148,24 +148,16 @@ spinner_messages = [
 
 # --- Helper Functions ---
 def normalize_team_name(name):
-    """
-    Robustly cleans and standardizes a team name for reliable matching.
-    Handles special characters, spacing, and case differences.
-    """
-    if not isinstance(name, str):
-        return ""
-    # Convert to lowercase
+    """Robustly cleans and standardizes a team name for reliable matching."""
+    if not isinstance(name, str): return ""
     name = name.lower()
-    # Replace special characters like '&' with a space
     name = re.sub(r'[\&\-\.]+', ' ', name)
-    # Remove any other non-alphanumeric characters (except spaces)
     name = re.sub(r'[^a-z0-9\s]', '', name)
-    # Collapse multiple spaces into a single space
     return ' '.join(name.split())
 
 # --- Data Fetching and Parsing Functions ---
 
-@st.cache_data(ttl=3600) # Cache data for 1 hour
+@st.cache_data(ttl=3600)
 def fetch_table(country, league, table_type="home"):
     """Fetches and parses the main ratings table and the league table."""
     url = f"https://www.soccer-rating.com/{country}/{league}/{table_type}/"
@@ -174,52 +166,42 @@ def fetch_table(country, league, table_type="home"):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
 
-        # Parse Ratings Table
-        rating_table_element = None
+        rating_table = None
         for table in soup.find_all('table', class_='rattab'):
             header = table.find('th')
             if header and table_type.capitalize() in header.get_text():
-                rating_table_element = table
+                teams_data = []
+                for row in table.find_all('tr')[1:]:
+                    cols = row.find_all('td')
+                    if len(cols) == 5:
+                        team_link = cols[1].find('a')
+                        if team_link and team_link.has_attr('href'):
+                            team_url = team_link['href']
+                            name_from_url = team_url.split('/')[1].replace('-', ' ')
+                            rating = float(cols[4].get_text(strip=True))
+                            teams_data.append({"Team": name_from_url, "Rating": rating, "URL": team_url})
+                rating_table = pd.DataFrame(teams_data)
                 break
-        
-        rating_table = None
-        if rating_table_element:
-            teams_data = []
-            for row in rating_table_element.find_all('tr')[1:]:
-                cols = row.find_all('td')
-                if len(cols) == 5:
-                    team_link = cols[1].find('a')
-                    if team_link and team_link.has_attr('href'):
-                        team_url = team_link['href']
-                        name_from_url = team_url.split('/')[1].replace('-', ' ')
-                        rating = float(cols[4].get_text(strip=True))
-                        teams_data.append({"Team": name_from_url, "Rating": rating, "URL": team_url})
-            rating_table = pd.DataFrame(teams_data)
 
-        # Parse League Table
         league_table = None
-        html_io = io.StringIO(str(soup))
-        all_html_tables = pd.read_html(html_io, flavor="lxml")
-        expected_columns = {"M", "P.", "Goals"} # Look for global stats columns
+        all_html_tables = pd.read_html(io.StringIO(str(soup)), flavor="lxml")
+        expected_columns = {"M", "P.", "Goals"}
         for candidate in all_html_tables:
             if expected_columns.issubset(set(candidate.columns.astype(str))):
                 league_table = candidate
                 break
-                    
         return rating_table, league_table
-
     except Exception:
         return None, None
 
 def find_section_header(soup, header_text):
-    """Robustly finds a header tag containing specific text."""
     for header in soup.find_all('th'):
         if header_text in header.get_text():
             return header
     return None
 
-def get_correct_table(soup, target_team_name, header_text, table_id_1, table_id_2):
-    """Finds the correct data table by matching the visible team name."""
+def get_correct_table_by_url(soup, target_team_url, header_text, table_id_1, table_id_2):
+    """Finds the correct data table by matching the team's unique URL."""
     header = find_section_header(soup, header_text)
     if not header: return None 
 
@@ -227,20 +209,19 @@ def get_correct_table(soup, target_team_name, header_text, table_id_1, table_id_
     if not team_name_row: return None
 
     team_links = team_name_row.find_all('a')
+    normalized_target_url = target_team_url.strip('/')
     
-    normalized_target = normalize_team_name(target_team_name)
-    
-    if len(team_links) >= 1:
-        header_team1 = re.sub(r'\s*\([^)]*\)', '', team_links[0].get_text(strip=True)).strip()
-        if normalize_team_name(header_team1) == normalized_target:
+    if len(team_links) >= 1 and team_links[0].has_attr('href'):
+        href1 = team_links[0]['href'].strip('/')
+        if href1 == normalized_target_url:
             return soup.find("table", id=table_id_1)
             
-    if len(team_links) == 2:
-        header_team2 = re.sub(r'\s*\([^)]*\)', '', team_links[1].get_text(strip=True)).strip()
-        if normalize_team_name(header_team2) == normalized_target:
+    if len(team_links) == 2 and team_links[1].has_attr('href'):
+        href2 = team_links[1]['href'].strip('/')
+        if href2 == normalized_target_url:
             return soup.find("table", id=table_id_2)
             
-    return None
+    return None # Explicitly return None if no match is found
 
 @st.cache_data(ttl=3600)
 def fetch_team_lineup(team_name, team_url):
@@ -269,7 +250,7 @@ def fetch_team_lineup(team_name, team_url):
         response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
-        correct_table = get_correct_table(soup, team_name, 'Expected Lineup', 'line1', 'line2')
+        correct_table = get_correct_table_by_url(soup, team_url, 'Expected Lineup', 'line1', 'line2')
         return parse_lineup_table(correct_table)
     except Exception:
         return None
@@ -291,11 +272,11 @@ st.markdown("""
 st.markdown('<div class="header">⚽ Elo Ratings Odds Calculator</div>', unsafe_allow_html=True)
 
 with st.sidebar.expander("How to Use This App", expanded=True):
-    st.write("1. **Select Country and League** from the dropdowns.")
-    st.write("2. **Click 'Get Ratings'** to load the league data.")
-    st.write("3. **Select Home and Away Teams** to see the matchup analysis.")
-    st.write("4. Lineups will be fetched automatically.")
-    st.write("5. **Interact with the lineups** to see how player changes affect the total rating.")
+    st.write("1. **Select Country and League**.")
+    st.write("2. **Click 'Get Ratings'** to load data.")
+    st.write("3. **Select Teams** for analysis.")
+    st.write("4. Lineups are fetched automatically.")
+    st.write("5. **Interact with lineups** to see rating changes.")
 
 st.sidebar.header("⚽ Select Match Details")
 selected_country = st.sidebar.selectbox("Select Country:", list(leagues_dict.keys()), index=0)
@@ -315,7 +296,7 @@ if st.sidebar.button("Get Ratings", key="fetch_button"):
             for key in ['home_lineup', 'away_lineup']: st.session_state.pop(key, None)
             st.rerun() 
         else:
-            st.error("Error fetching data. The source website might be unavailable or the structure may have changed.")
+            st.error("Error fetching data. Source may be unavailable or structure changed.")
             st.session_state['data_fetched'] = False
 
 if st.session_state.get('data_fetched', False):
@@ -331,28 +312,24 @@ if st.session_state.get('data_fetched', False):
     home_team_data = home_table[home_table["Team"] == home_team_name].iloc[0]
     away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
 
-    # --- Display Team Stats ---
     if isinstance(league_table, pd.DataFrame):
         st.markdown('<div class="section-header">📊 Team Statistics</div>', unsafe_allow_html=True)
         stat_col1, stat_col2 = st.columns(2)
 
         def display_team_stats(team_name, table, column):
             try:
-                # FUZZY MATCHING LOGIC
                 normalized_target = normalize_team_name(team_name)
-                # Create a normalized column on the fly for matching
                 table['normalized_name'] = table.iloc[:, 1].apply(normalize_team_name)
                 team_stats_row = table[table['normalized_name'] == normalized_target]
                 
                 if team_stats_row.empty:
-                    column.warning(f"Statistics not found for {team_name}.")
+                    column.warning(f"Stats not found for {team_name}.")
                     return
 
                 team_stats = team_stats_row.iloc[0]
                 column.markdown(f"**{team_name}**")
                 column.metric(label="League Position", value=f"#{int(team_stats.iloc[0])}")
                 
-                # Global Stats
                 matches = int(team_stats['M'])
                 points = int(team_stats['P.'])
                 goals_for, goals_against = map(int, team_stats['Goals'].split(':'))
@@ -364,22 +341,21 @@ if st.session_state.get('data_fetched', False):
                 column.metric(label="Avg. Points per Game", value=f"{points/matches:.2f}")
 
             except (IndexError, ValueError, KeyError, TypeError):
-                column.warning(f"Statistics not available for {team_name}.")
+                column.warning(f"Statistics unavailable for {team_name}.")
 
         display_team_stats(home_team_name, league_table, stat_col1)
         display_team_stats(away_team_name, league_table, stat_col2)
 
-    # --- Odds Calculation ---
     st.markdown('<div class="section-header">📈 Odds Analysis</div>', unsafe_allow_html=True)
     home_rating, away_rating = home_team_data['Rating'], away_team_data['Rating']
     home, away = 10**(home_rating / 400), 10**(away_rating / 400)
     home_win_prob, away_win_prob = home / (home + away), away / (home + away)
     
-    c1, _, c2 = st.columns([2, 1, 2]) # Add space between metrics
+    c1, _, c2 = st.columns([2, 1, 2])
     c1.metric(f"{home_team_name} Rating", f"{home_rating:.2f}")
     c2.metric(f"{away_team_name} Rating", f"{away_rating:.2f}")
     
-    d = 0.26 # Default draw prob
+    d = 0.26
     draw_prob = st.slider("Select Draw Probability:", 0.05, 0.4, d, 0.01)
     
     h_win, a_win = home_win_prob * (1 - draw_prob), away_win_prob * (1 - draw_prob)
@@ -390,12 +366,11 @@ if st.session_state.get('data_fetched', False):
     c2.markdown(f"<div class='card'><div class='card-title'>Draw (X)</div><div class='card-value'>{d_odds:.2f}</div></div>", unsafe_allow_html=True)
     c3.markdown(f"<div class='card'><div class='card-title'>Away Win (2)</div><div class='card-value'>{a_odds:.2f}</div></div>", unsafe_allow_html=True)
 
-    # --- Automatic Lineup Fetching ---
     if 'last_home_team' not in st.session_state or st.session_state.last_home_team != home_team_name:
         with st.spinner(f"Fetching {home_team_name} lineup..."):
             st.session_state['home_lineup'] = fetch_team_lineup(home_team_name, home_team_data['URL'])
             st.session_state.last_home_team = home_team_name
-            time.sleep(1) # Pause to avoid overloading server
+            time.sleep(1)
             st.rerun()
 
     if 'last_away_team' not in st.session_state or st.session_state.last_away_team != away_team_name:
@@ -404,7 +379,6 @@ if st.session_state.get('data_fetched', False):
             st.session_state.last_away_team = away_team_name
             st.rerun()
 
-    # --- Interactive Lineups Display ---
     st.markdown('<div class="section-header">📋 Interactive Lineups</div>', unsafe_allow_html=True)
 
     def display_interactive_lineup(team_name, team_key):
