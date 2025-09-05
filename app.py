@@ -148,10 +148,20 @@ spinner_messages = [
 
 # --- Helper Functions ---
 def normalize_team_name(name):
-    """Removes special characters and converts to lowercase for reliable matching."""
+    """
+    Robustly cleans and standardizes a team name for reliable matching.
+    Handles special characters, spacing, and case differences.
+    """
     if not isinstance(name, str):
         return ""
-    return re.sub(r'[^a-z0-9\s]', '', name.lower()).strip()
+    # Convert to lowercase
+    name = name.lower()
+    # Replace special characters like '&' with a space
+    name = re.sub(r'[\&\-\.]+', ' ', name)
+    # Remove any other non-alphanumeric characters (except spaces)
+    name = re.sub(r'[^a-z0-9\s]', '', name)
+    # Collapse multiple spaces into a single space
+    return ' '.join(name.split())
 
 # --- Data Fetching and Parsing Functions ---
 
@@ -330,7 +340,9 @@ if st.session_state.get('data_fetched', False):
             try:
                 # FUZZY MATCHING LOGIC
                 normalized_target = normalize_team_name(team_name)
-                team_stats_row = table[table.iloc[:, 1].apply(lambda x: normalize_team_name(x)) == normalized_target]
+                # Create a normalized column on the fly for matching
+                table['normalized_name'] = table.iloc[:, 1].apply(normalize_team_name)
+                team_stats_row = table[table['normalized_name'] == normalized_target]
                 
                 if team_stats_row.empty:
                     column.warning(f"Statistics not found for {team_name}.")
