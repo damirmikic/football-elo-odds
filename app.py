@@ -413,12 +413,30 @@ if st.session_state.get('data_fetched', False):
         if num_selected != 11:
             st.warning(f"Please select exactly 11 starters ({num_selected} selected).")
         
+        # --- New Calculations for Total Matches and Goals ---
+        total_matches = 0
+        total_goals = 0
+        for player in selected_starters:
+            try:
+                matches, goals = map(int, player['stats'].split('/'))
+                total_matches += matches
+                total_goals += goals
+            except (ValueError, AttributeError):
+                pass # Gracefully skip if stats are not in "M/G" format
+        
         starters_rating_sum = sum(p['rating'] for p in selected_starters)
         avg_rating = starters_rating_sum / num_selected if num_selected > 0 else 0
         
+        st.markdown("---")
+        st.write("**Starting Lineup Analysis**")
+        
         m1, m2 = st.columns(2)
+        m3, m4 = st.columns(2)
         m1.metric("Total Starters Rating", starters_rating_sum)
         m2.metric("Average Starter Rating", f"{avg_rating:.2f}")
+        m3.metric("Total Matches (Starters)", total_matches)
+        m4.metric("Total Goals (Starters)", total_goals)
+
 
     display_col1, display_col2 = st.columns(2)
     with display_col1: display_interactive_lineup(f"{home_team_name} (Home)", "home_lineup")
