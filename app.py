@@ -146,6 +146,13 @@ spinner_messages = [
     "Almost there, preparing the stats..."
 ]
 
+# --- Helper Functions ---
+def normalize_team_name(name):
+    """Removes special characters and converts to lowercase for reliable matching."""
+    if not isinstance(name, str):
+        return ""
+    return re.sub(r'[^a-z0-9\s]', '', name.lower()).strip()
+
 # --- Data Fetching and Parsing Functions ---
 
 @st.cache_data(ttl=3600) # Cache data for 1 hour
@@ -192,7 +199,6 @@ def fetch_table(country, league, table_type="home"):
         return rating_table, league_table
 
     except Exception:
-        # Silently fail on fetch_table error to allow app to run
         return None, None
 
 def find_section_header(soup, header_text):
@@ -212,14 +218,16 @@ def get_correct_table(soup, target_team_name, header_text, table_id_1, table_id_
 
     team_links = team_name_row.find_all('a')
     
+    normalized_target = normalize_team_name(target_team_name)
+    
     if len(team_links) >= 1:
         header_team1 = re.sub(r'\s*\([^)]*\)', '', team_links[0].get_text(strip=True)).strip()
-        if target_team_name.lower() in header_team1.lower() or header_team1.lower() in target_team_name.lower():
+        if normalize_team_name(header_team1) == normalized_target:
             return soup.find("table", id=table_id_1)
             
     if len(team_links) == 2:
         header_team2 = re.sub(r'\s*\([^)]*\)', '', team_links[1].get_text(strip=True)).strip()
-        if target_team_name.lower() in header_team2.lower() or header_team2.lower() in target_team_name.lower():
+        if normalize_team_name(header_team2) == normalized_target:
             return soup.find("table", id=table_id_2)
             
     return None
@@ -320,8 +328,16 @@ if st.session_state.get('data_fetched', False):
 
         def display_team_stats(team_name, table, column):
             try:
-                team_stats = table[table.iloc[:, 1] == team_name].iloc[0]
-                column.markdown(f"**{team_name} (Home/Away)**")
+                # FUZZY MATCHING LOGIC
+                normalized_target = normalize_team_name(team_name)
+                team_stats_row = table[table.iloc[:, 1].apply(lambda x: normalize_team_name(x)) == normalized_target]
+                
+                if team_stats_row.empty:
+                    column.warning(f"Statistics not found for {team_name}.")
+                    return
+
+                team_stats = team_stats_row.iloc[0]
+                column.markdown(f"**{team_name}**")
                 column.metric(label="League Position", value=f"#{int(team_stats.iloc[0])}")
                 
                 # Global Stats
@@ -335,7 +351,7 @@ if st.session_state.get('data_fetched', False):
                 column.metric(label="Avg. Goals per Match", value=f"{(goals_for + goals_against)/matches:.2f}")
                 column.metric(label="Avg. Points per Game", value=f"{points/matches:.2f}")
 
-            except (IndexError, ValueError, KeyError):
+            except (IndexError, ValueError, KeyError, TypeError):
                 column.warning(f"Statistics not available for {team_name}.")
 
         display_team_stats(home_team_name, league_table, stat_col1)
