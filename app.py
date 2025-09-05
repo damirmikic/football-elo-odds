@@ -11,7 +11,7 @@ import re
 # Set page title and icon
 st.set_page_config(page_title="Elo Ratings Odds Calculator", page_icon="odds_icon.png")
 
-# Dictionary of countries and leagues - RESTORED
+# Dictionary of countries and leagues
 leagues_dict = {
     "England": ["UK1", "UK2", "UK3", "UK4", "UK5", "UK6N", "UK6S", "UK7N"],
     "Germany": ["DE1", "DE2", "DE3", "DE4SW", "DE4W", "DE4N", "DE4NO", "DE4B"],
@@ -183,7 +183,7 @@ def fetch_table(country, league, table_type="home"):
         league_table = None
         html_io = io.StringIO(str(soup))
         all_html_tables = pd.read_html(html_io, flavor="lxml")
-        expected_columns = {"Home", "Away", "Home.4", "Away.4"}
+        expected_columns = {"M", "P.", "Goals"} # Look for global stats columns
         for candidate in all_html_tables:
             if expected_columns.issubset(set(candidate.columns.astype(str))):
                 league_table = candidate
@@ -315,36 +315,39 @@ if st.session_state.get('data_fetched', False):
 
     # --- Display Team Stats ---
     if isinstance(league_table, pd.DataFrame):
+        st.markdown('<div class="section-header">📊 Team Statistics</div>', unsafe_allow_html=True)
         stat_col1, stat_col2 = st.columns(2)
-        try:
-            home_stats = league_table[league_table.iloc[:, 1] == home_team_name].iloc[0]
-            goals_for, goals_against = home_stats['Home.4'].split(':')
-            with stat_col1:
-                st.markdown(f"**{home_team_name} (Home Stats)**")
-                st.metric(label="League Position", value=f"#{int(home_stats.iloc[0])}")
-                st.metric(label="Goals For", value=goals_for.strip())
-                st.metric(label="Goals Against", value=goals_against.strip())
-        except (IndexError, ValueError, KeyError):
-            stat_col1.warning(f"Home stats not available for {home_team_name}.")
 
-        try:
-            away_stats = league_table[league_table.iloc[:, 1] == away_team_name].iloc[0]
-            goals_for, goals_against = away_stats['Away.4'].split(':')
-            with stat_col2:
-                st.markdown(f"**{away_team_name} (Away Stats)**")
-                st.metric(label="League Position", value=f"#{int(away_stats.iloc[0])}")
-                st.metric(label="Goals For", value=goals_for.strip())
-                st.metric(label="Goals Against", value=goals_against.strip())
-        except (IndexError, ValueError, KeyError):
-            stat_col2.warning(f"Away stats not available for {away_team_name}.")
-    
+        def display_team_stats(team_name, table, column):
+            try:
+                team_stats = table[table.iloc[:, 1] == team_name].iloc[0]
+                column.markdown(f"**{team_name} (Home/Away)**")
+                column.metric(label="League Position", value=f"#{int(team_stats.iloc[0])}")
+                
+                # Global Stats
+                matches = int(team_stats['M'])
+                points = int(team_stats['P.'])
+                goals_for, goals_against = map(int, team_stats['Goals'].split(':'))
+
+                column.markdown(f"**Global Averages**")
+                column.metric(label="Avg. Goals Scored", value=f"{goals_for/matches:.2f}")
+                column.metric(label="Avg. Goals Conceded", value=f"{goals_against/matches:.2f}")
+                column.metric(label="Avg. Goals per Match", value=f"{(goals_for + goals_against)/matches:.2f}")
+                column.metric(label="Avg. Points per Game", value=f"{points/matches:.2f}")
+
+            except (IndexError, ValueError, KeyError):
+                column.warning(f"Statistics not available for {team_name}.")
+
+        display_team_stats(home_team_name, league_table, stat_col1)
+        display_team_stats(away_team_name, league_table, stat_col2)
+
     # --- Odds Calculation ---
     st.markdown('<div class="section-header">📈 Odds Analysis</div>', unsafe_allow_html=True)
     home_rating, away_rating = home_team_data['Rating'], away_team_data['Rating']
     home, away = 10**(home_rating / 400), 10**(away_rating / 400)
     home_win_prob, away_win_prob = home / (home + away), away / (home + away)
     
-    c1, c2, c3 = st.columns(3)
+    c1, _, c2 = st.columns([2, 1, 2]) # Add space between metrics
     c1.metric(f"{home_team_name} Rating", f"{home_rating:.2f}")
     c2.metric(f"{away_team_name} Rating", f"{away_rating:.2f}")
     
