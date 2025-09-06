@@ -260,31 +260,34 @@ def get_correct_table(soup, target_team_name, target_team_url, header_text, tabl
     return None
 
 @st.cache_data(ttl=3600)
-def fetch_team_page_data(team_name, team_url):
-    """Fetches lineup, squad, and last matches from a single team page visit."""
+def fetch_team_lineup(team_name, team_url):
+    """Fetches and parses the expected lineup for a single team."""
+    def parse_lineup_table(lineup_table):
+        player_list = []
+        if not lineup_table: return player_list
+        for row in lineup_table.find_all('tr'):
+            cols = row.find_all('td')
+            if len(cols) == 4:
+                try:
+                    player_div = cols[1].find("div", class_="nomobil")
+                    if not player_div: continue
+                    img_tag = player_div.find('img')
+                    full_text = (img_tag.next_sibling.strip() if img_tag and img_tag.next_sibling else player_div.get_text(strip=True))
+                    match = re.match(r'(.+?)\s*\((.+)\)', full_text)
+                    name, pos = (match.group(1).strip(), match.group(2).strip()) if match else (full_text.strip(), "N/A")
+                    stats = cols[2].get_text(strip=True)
+                    rating = int(cols[3].get_text(strip=True))
+                    lineup_data.append({"name": name, "position": pos, "stats": stats, "rating": rating})
+                except (ValueError, IndexError): continue
+        return player_list
+
     try:
         url = f"https://www.soccer-rating.com{team_url}"
         response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
-        lineup_table = get_correct_table(soup, team_name, team_url, 'Expected Lineup', 'line1', 'line2')
-        lineup_data = []
-        if lineup_table:
-            for row in lineup_table.find_all('tr'):
-                cols = row.find_all('td')
-                if len(cols) == 4:
-                    try:
-                        player_div = cols[1].find("div", class_="nomobil")
-                        if not player_div: continue
-                        img_tag = player_div.find('img')
-                        full_text = (img_tag.next_sibling.strip() if img_tag and img_tag.next_sibling else player_div.get_text(strip=True))
-                        match = re.match(r'(.+?)\s*\((.+)\)', full_text)
-                        name, pos = (match.group(1).strip(), match.group(2).strip()) if match else (full_text.strip(), "N/A")
-                        stats = cols[2].get_text(strip=True)
-                        rating = int(cols[3].get_text(strip=True))
-                        lineup_data.append({"name": name, "position": pos, "stats": stats, "rating": rating})
-                    except (ValueError, IndexError): continue
-        return lineup_data
+        correct_table = get_correct_table(soup, team_name, team_url, 'Expected Lineup', 'line1', 'line2')
+        return parse_lineup_table(correct_table)
     except Exception:
         return None
 
