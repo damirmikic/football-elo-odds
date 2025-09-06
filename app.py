@@ -533,14 +533,22 @@ if st.session_state.get('data_fetched', False):
             if lineup_data is None: st.info("Fetching lineup...")
             elif not lineup_data: st.warning("Lineup data not available.")
             else:
-                c1,c2,c3,c4,c5=st.columns([1,4,2,2,2]);[c.markdown(f'<p class="player-table-header">{t}</p>',unsafe_allow_html=True) for c,t in zip([c1,c2,c3,c4,c5],["On","Player","Position","M/G","Rating"])]
+                c1, c2, c3, c4, c5 = st.columns([1, 4, 2, 2, 2])
+                for col, title in zip([c1, c2, c3, c4, c5], ["On", "Player", "Position", "M/G", "Rating"]):
+                    col.markdown(f'<p class="player-table-header">{title}</p>', unsafe_allow_html=True)
                 selected_starters = []
                 for i, p in enumerate(lineup_data):
-                    pc1,pc2,pc3,pc4,pc5 = st.columns([1,4,2,2,2])
-                    if pc1.checkbox("", value=(i<11),key=f"check_{team_key}_{i}",label_visibility="collapsed"): selected_starters.append(p)
-                    pc2.write(p['name']);pc3.write(p['position']);pc4.write(p['stats']);pc5.write(f"**{p['rating']}**")
+                    pc1, pc2, pc3, pc4, pc5 = st.columns([1, 4, 2, 2, 2])
+                    if pc1.checkbox("", value=(i < 11), key=f"check_{team_key}_{i}", label_visibility="collapsed"):
+                        selected_starters.append(p)
+                    pc2.write(p['name'])
+                    pc3.write(p['position'])
+                    pc4.write(p['stats'])
+                    pc5.write(f"**{p['rating']}**")
+                
                 num_selected = len(selected_starters)
-                if num_selected!=11: st.warning(f"Select 11 starters ({num_selected} selected).")
+                if num_selected != 11:
+                    st.warning(f"Select 11 starters ({num_selected} selected).")
                 
                 total_matches, total_goals = 0, 0
                 for player in selected_starters:
@@ -548,17 +556,22 @@ if st.session_state.get('data_fetched', False):
                         matches, goals = map(int, player['stats'].split('/'))
                         total_matches += matches
                         total_goals += goals
-                    except (ValueError, AttributeError): pass 
+                    except (ValueError, AttributeError): pass
                 
                 starters_rating_sum = sum(p['rating'] for p in selected_starters)
                 avg_rating = starters_rating_sum / num_selected if num_selected > 0 else 0
-                st.markdown("---");st.write("**Starting Lineup Analysis**")
-                m1,m2=st.columns(2);m3,m4=st.columns(2)
-                m1.metric("Total Starters Rating",starters_rating_sum);m2.metric("Average Starter Rating",f"{avg_r:.2f}")
-                m3.metric("Total Matches (Starters)",total_matches);m4.metric("Total Goals (Starters)",total_goals)
+                st.markdown("---")
+                st.write("**Starting Lineup Analysis**")
+                m1, m2 = st.columns(2)
+                m3, m4 = st.columns(2)
+                m1.metric("Total Starters Rating", starters_rating_sum)
+                m2.metric("Average Starter Rating", f"{avg_rating:.2f}")
+                m3.metric("Total Matches (Starters)", total_matches)
+                m4.metric("Total Goals (Starters)", total_goals)
+
         col1, col2 = st.columns(2)
-        with col1: display_interactive_lineup(f"{home_team_name} (Home)","home_lineup")
-        with col2: display_interactive_lineup(f"{away_team_name} (Away)","away_lineup")
+        with col1: display_interactive_lineup(f"{home_team_name} (Home)", "home_lineup")
+        with col2: display_interactive_lineup(f"{away_team_name} (Away)", "away_lineup")
 
     with st.expander("👥 Full Squads", expanded=False):
         def display_squad(team_name, squad_key):
@@ -567,12 +580,18 @@ if st.session_state.get('data_fetched', False):
             if squad_data is None: st.info("Fetching squad...")
             elif not squad_data: st.warning("Squad data not available.")
             else:
-                c1,c2,c3=st.columns([4,2,2]);[c.markdown(f'<p class="player-table-header">{t}</p>',unsafe_allow_html=True) for c,t in zip([c1,c2,c3],["Player","Age","Rating"])]
+                c1, c2, c3 = st.columns([4, 2, 2])
+                for col, title in zip([c1, c2, c3], ["Player", "Age", "Rating"]):
+                    col.markdown(f'<p class="player-table-header">{title}</p>', unsafe_allow_html=True)
                 for p in squad_data:
-                    pc1,pc2,pc3=st.columns([4,2,2]);pc1.write(p['name']);pc2.write(p['age']);pc3.write(f"**{p['rating']}**")
+                    pc1, pc2, pc3 = st.columns([4, 2, 2])
+                    pc1.write(p['name'])
+                    pc2.write(p['age'])
+                    pc3.write(f"**{p['rating']}**")
+
         col1, col2 = st.columns(2)
-        with col1: display_squad(f"{home_team_name} (Home)","home_squad")
-        with col2: display_squad(f"{away_team_name} (Away)","away_squad")
+        with col1: display_squad(f"{home_team_name} (Home)", "home_squad")
+        with col2: display_squad(f"{away_team_name} (Away)", "away_squad")
 
     with st.expander("📅 Last 5 League Matches", expanded=False):
         def display_last_matches(team_name, matches_key):
@@ -584,9 +603,11 @@ if st.session_state.get('data_fetched', False):
                 st.metric("Points in Last 5 League Matches", matches_data["points"])
                 for match in matches_data["matches"]:
                     st.text(f"{match['date']}: {match['opponent']}  ({match['result']})")
+        
         col1, col2 = st.columns(2)
-        with col1: display_last_matches(f"{home_team_name} (Home)","home_matches")
-        with col2: display_last_matches(f"{away_team_name} (Away)","away_matches")
+        with col1: display_last_matches(f"{home_team_name} (Home)", "home_matches")
+        with col2: display_last_matches(f"{away_team_name} (Away)", "away_matches")
+
 else:
     st.info("Please click 'Get Ratings' in the sidebar to begin.")
 
