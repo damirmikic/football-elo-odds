@@ -388,16 +388,13 @@ def calculate_poisson_draw_prob(home_team_name, away_team_name, league_table):
 def calculate_league_averages(league_table):
     """Calculates average goals for the entire league."""
     try:
-        # Ensure correct data types before calculation
         df = league_table.copy()
         if 'Goals' not in df.columns or 'M' not in df.columns: return None
         df[['GF', 'GA']] = df['Goals'].str.split(':', expand=True)
-        # Convert to numeric, coercing errors to NaN, then fill NaNs
         for col in ['GF', 'GA', 'M']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         df.dropna(subset=['GF', 'GA', 'M'], inplace=True)
         if df.empty: return None
-
         total_goals_scored = df['GF'].sum()
         total_matches_played = df['M'].sum() / 2
         if total_matches_played == 0: return None
@@ -422,14 +419,6 @@ st.markdown("""
         .card-title { color: #007BFF; font-weight: bold; font-size: 16px; }
         .card-value { font-size: 22px; font-weight: bold; color: #333; }
         .player-table-header { font-weight: bold; font-size: 14px; }
-        .data-container {
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            padding: 15px;
-            background-color: #ffffff;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            margin-top: 10px;
-        }
     </style>
 """, unsafe_allow_html=True)
 
