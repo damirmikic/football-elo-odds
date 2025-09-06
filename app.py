@@ -260,36 +260,78 @@ def get_correct_table(soup, target_team_name, target_team_url, header_text, tabl
     return None
 
 @st.cache_data(ttl=3600)
-def fetch_team_lineup(team_name, team_url):
-    """Fetches and parses the expected lineup for a single team."""
-    def parse_lineup_table(lineup_table):
-        player_list = []
-        if not lineup_table: return player_list
-        for row in lineup_table.find_all('tr'):
-            cols = row.find_all('td')
-            if len(cols) == 4:
-                try:
-                    player_div = cols[1].find("div", class_="nomobil")
-                    if not player_div: continue
-                    img_tag = player_div.find('img')
-                    full_text = (img_tag.next_sibling.strip() if img_tag and img_tag.next_sibling else player_div.get_text(strip=True))
-                    match = re.match(r'(.+?)\s*\((.+)\)', full_text)
-                    name, pos = (match.group(1).strip(), match.group(2).strip()) if match else (full_text.strip(), "N/A")
-                    stats = cols[2].get_text(strip=True)
-                    rating = int(cols[3].get_text(strip=True))
-                    lineup_data.append({"name": name, "position": pos, "stats": stats, "rating": rating})
-                except (ValueError, IndexError): continue
-        return player_list
-
+def fetch_team_page_data(team_name, team_url):
+    """Fetches lineup, squad, and last matches from a single team page visit."""
     try:
         url = f"https://www.soccer-rating.com{team_url}"
         response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
-        correct_table = get_correct_table(soup, team_name, team_url, 'Expected Lineup', 'line1', 'line2')
-        return parse_lineup_table(correct_table)
+
+        # Parse Lineup
+        lineup_table = get_correct_table(soup, team_name, team_url, 'Expected Lineup', 'line1', 'line2')
+        lineup_data = []
+        if lineup_table:
+            for row in lineup_table.find_all('tr'):
+                cols = row.find_all('td')
+                if len(cols) == 4:
+                    try:
+                        player_div = cols[1].find("div", class_="nomobil")
+                        if not player_div: continue
+                        img_tag = player_div.find('img')
+                        full_text = (img_tag.next_sibling.strip() if img_tag and img_tag.next_sibling else player_div.get_text(strip=True))
+                        match = re.match(r'(.+?)\s*\((.+)\)', full_text)
+                        name, pos = (match.group(1).strip(), match.group(2).strip()) if match else (full_text.strip(), "N/A")
+                        stats = cols[2].get_text(strip=True)
+                        rating = int(cols[3].get_text(strip=True))
+                        lineup_data.append({"name": name, "position": pos, "stats": stats, "rating": rating})
+                    except (ValueError, IndexError): continue
+        
+        # Parse Squad
+        squad_table = get_correct_table(soup, team_name, team_url, 'Squad', 'squad1', 'squad2')
+        squad_data = []
+        if squad_table:
+            for row in squad_table.find_all('tr'):
+                if row.find('th') or row.find('hr'): continue
+                cols = row.find_all('td')
+                if len(cols) == 3:
+                    try:
+                        player_div = cols[0].find("div", class_="nomobil")
+                        if not player_div: continue
+                        img_tag = player_div.find('img')
+                        full_text = (img_tag.next_sibling.strip() if img_tag and img_tag.next_sibling else player_div.get_text(strip=True))
+                        match = re.match(r'(.+?)\s*\((\d+)\)', full_text)
+                        name, age = (match.group(1).strip(), int(match.group(2))) if match else (full_text, "N/A")
+                        rating = int(cols[2].get_text(strip=True))
+                        squad_data.append({"name": name, "age": age, "rating": rating})
+                    except (ValueError, IndexError): continue
+        
+        # Parse Last Matches
+        last_matches_data, points, league_matches_count = [], 0, 0
+        matches_table = soup.find('table', {'class': 'bigtable', 'cellspacing': '0'})
+        if matches_table:
+            for row in matches_table.find_all('tr'):
+                if league_matches_count >= 5: break
+                cols = row.find_all('td')
+                if len(cols) > 9 and "cup" not in cols[7].get_text(strip=True).lower():
+                    date = cols[1].get_text(strip=True, separator=" ").split(" ")[0]
+                    opponent = cols[2].get_text(strip=True)
+                    result = cols[10].get_text(strip=True)
+                    if result:
+                        last_matches_data.append({"date": date, "opponent": opponent, "result": result})
+                        try:
+                            own_score, opp_score = map(int, result.split(':'))
+                            is_home_match = team_name in opponent.split('-')[0]
+                            if (is_home_match and own_score > opp_score) or (not is_home_match and opp_score > own_score):
+                                points += 3
+                            elif own_score == opp_score:
+                                points += 1
+                        except (ValueError, IndexError): pass
+                        league_matches_count += 1
+
+        return lineup_data, squad_data, {"matches": last_matches_data, "points": points}
     except Exception:
-        return None
+        return None, None, None
 
 def calculate_outcome_probabilities(home_rating, away_rating):
     """Calculates home, draw, and away probabilities using the provided formula."""
@@ -336,7 +378,7 @@ if st.sidebar.button("Get Ratings", key="fetch_button"):
         home_table, away_table, league_table = fetch_table_data(selected_country, selected_league)
         if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
             st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True})
-            for key in ['home_lineup', 'away_lineup', 'last_home_team', 'last_away_team']: 
+            for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                 st.session_state.pop(key, None)
             st.rerun() 
         else:
@@ -354,32 +396,27 @@ if st.session_state.get('data_fetched', False):
         away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
 
     if 'last_home_team' not in st.session_state or st.session_state.last_home_team != home_team_name:
-        with st.spinner(f"Fetching {home_team_name} lineup..."):
-            st.session_state['home_lineup'] = fetch_team_lineup(home_team_name, home_team_data['URL'])
-            st.session_state.last_home_team = home_team_name
+        with st.spinner(f"Fetching {home_team_name} data..."):
+            lineup, squad, matches = fetch_team_page_data(home_team_name, home_team_data['URL'])
+            st.session_state.update({'home_lineup': lineup, 'home_squad': squad, 'home_matches': matches, 'last_home_team': home_team_name})
             time.sleep(1)
             st.rerun()
 
     if 'last_away_team' not in st.session_state or st.session_state.last_away_team != away_team_name:
-        with st.spinner(f"Fetching {away_team_name} lineup..."):
-            st.session_state['away_lineup'] = fetch_team_lineup(away_team_name, away_team_data['URL'])
-            st.session_state.last_away_team = away_team_name
+        with st.spinner(f"Fetching {away_team_name} data..."):
+            lineup, squad, matches = fetch_team_page_data(away_team_name, away_team_data['URL'])
+            st.session_state.update({'away_lineup': lineup, 'away_squad': squad, 'away_matches': matches, 'last_away_team': away_team_name})
             st.rerun()
 
     with st.expander("📈 Odds Analysis", expanded=True):
         home_rating, away_rating = home_team_data['Rating'], away_team_data['Rating']
         
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         c1.metric(f"{home_team_name} Rating", f"{home_rating:.2f}")
-        c3.metric(f"{away_team_name} Rating", f"{away_rating:.2f}")
+        c2.metric(f"{away_team_name} Rating", f"{away_rating:.2f}")
 
-        # --- New Unified Probability Calculation ---
         p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating)
         
-        h_odds = 1 / p_home if p_home > 0 else 0
-        d_odds = 1 / p_draw if p_draw > 0 else 0
-        a_odds = 1 / p_away if p_away > 0 else 0
-
         st.markdown(f"**Calculated Probabilities:**")
         prob_cols = st.columns(3)
         prob_cols[0].metric("Home Win", f"{p_home:.2%}")
@@ -387,6 +424,10 @@ if st.session_state.get('data_fetched', False):
         prob_cols[2].metric("Away Win", f"{p_away:.2%}")
         
         st.markdown("---")
+        
+        h_odds = 1 / p_home if p_home > 0 else 0
+        d_odds = 1 / p_draw if p_draw > 0 else 0
+        a_odds = 1 / p_away if p_away > 0 else 0
         
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"<div class='card'><div class='card-title'>Home Win (1)</div><div class='card-value'>{h_odds:.2f}</div></div>", unsafe_allow_html=True)
