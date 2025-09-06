@@ -224,24 +224,27 @@ def find_section_header(soup, header_text):
             return header
     return None
 
-def get_correct_table(soup, target_team_name, header_text, table_id_1, table_id_2):
-    """Finds the correct data table by matching the visible team name."""
+def get_correct_table_by_url(soup, target_team_url, header_text, table_id_1, table_id_2):
+    """Finds the correct data table by matching the team's unique URL."""
     header = find_section_header(soup, header_text)
     if not header: return None 
     team_name_row = header.find_next('tr')
     if not team_name_row: return None
     team_links = team_name_row.find_all('a')
-    normalized_target = normalize_team_name(target_team_name)
-    if len(team_links) >= 1:
-        header_team1_raw = team_links[0].get_text(strip=True)
-        header_team1 = re.sub(r'\s*\([^)]*\)', '', header_team1_raw).strip()
-        if normalize_team_name(header_team1) == normalized_target:
-            return soup.find("table", id=table_id_1)
-    if len(team_links) == 2:
-        header_team2_raw = team_links[1].get_text(strip=True)
-        header_team2 = re.sub(r'\s*\([^)]*\)', '', header_team2_raw).strip()
-        if normalize_team_name(header_team2) == normalized_target:
-            return soup.find("table", id=table_id_2)
+    normalized_target_url = target_team_url.strip('/')
+    
+    if len(team_links) >= 1 and team_links[0].has_attr('href'):
+        href1 = team_links[0]['href']
+        if not href1.startswith('javascript:'):
+             if href1.strip('/') == normalized_target_url:
+                return soup.find("table", id=table_id_1)
+            
+    if len(team_links) == 2 and team_links[1].has_attr('href'):
+        href2 = team_links[1]['href']
+        if not href2.startswith('javascript:'):
+            if href2.strip('/') == normalized_target_url:
+                return soup.find("table", id=table_id_2)
+            
     return None
 
 @st.cache_data(ttl=3600)
@@ -254,7 +257,7 @@ def fetch_team_page_data(team_name, team_url):
         soup = BeautifulSoup(response.text, "lxml")
 
         # Parse Lineup
-        lineup_table = get_correct_table(soup, team_name, 'Expected Lineup', 'line1', 'line2')
+        lineup_table = get_correct_table_by_url(soup, team_url, 'Expected Lineup', 'line1', 'line2')
         lineup_data = []
         if lineup_table:
             for row in lineup_table.find_all('tr'):
@@ -273,7 +276,7 @@ def fetch_team_page_data(team_name, team_url):
                     except (ValueError, IndexError): continue
         
         # Parse Squad
-        squad_table = get_correct_table(soup, team_name, 'Squad', 'squad1', 'squad2')
+        squad_table = get_correct_table_by_url(soup, team_url, 'Squad', 'squad1', 'squad2')
         squad_data = []
         if squad_table:
             for row in squad_table.find_all('tr'):
