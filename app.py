@@ -328,9 +328,16 @@ def calculate_elo_based_draw(home_win_prob):
     return 0.26
 
 def calculate_poisson_draw_prob(home_team_name, away_team_name, league_table):
-    """Calculates draw probability using Poisson distribution."""
+    """Calculates draw probability using a weighted Poisson distribution."""
     try:
-        total_home_goals, total_away_goals, total_matches = 0, 0, 0
+        # --- 1. Calculate League Averages ---
+        league_table[['GF', 'GA']] = league_table['Goals'].str.split(':', expand=True).astype(int)
+        league_table['M'] = league_table['M'].astype(int)
+        total_matches = league_table['M'].sum() / 2
+        avg_league_scored = league_table['GF'].sum() / (total_matches * 2)
+        avg_league_conceded = league_table['GA'].sum() / (total_matches * 2)
+
+        total_home_goals, total_away_goals, total_home_matches = 0, 0, 0
         for i, row in league_table.iterrows():
             try:
                 home_matches = int(row['Home'])
@@ -338,29 +345,40 @@ def calculate_poisson_draw_prob(home_team_name, away_team_name, league_table):
                 away_gf, _ = map(int, row['Away.4'].split(':'))
                 total_home_goals += home_gf
                 total_away_goals += away_gf
-                total_matches += home_matches
+                total_home_matches += home_matches
             except (ValueError, TypeError): continue
-        if total_matches == 0: return 0.25, None, None
+        if total_home_matches == 0: return 0.25, None, None
         
-        avg_league_home_goals = total_home_goals / total_matches
-        avg_league_away_goals = total_away_goals / total_matches
+        avg_league_home_goals = total_home_goals / total_home_matches
+        avg_league_away_goals = total_away_goals / total_home_matches
 
+        # --- 2. Get Individual Team Stats ---
         home_team_row = league_table[league_table.iloc[:, 1].apply(normalize_team_name) == normalize_team_name(home_team_name)].iloc[0]
         away_team_row = league_table[league_table.iloc[:, 1].apply(normalize_team_name) == normalize_team_name(away_team_name)].iloc[0]
 
+        # --- 3. Calculate Attack and Defense Strength (Home/Away Specific) ---
         home_gf_h, home_ga_h = map(int, home_team_row['Home.4'].split(':'))
         away_gf_a, away_ga_a = map(int, away_team_row['Away.4'].split(':'))
-        home_matches_h = int(home_team_row['Home'])
-        away_matches_a = int(away_team_row['Away'])
+        home_matches_h, away_matches_a = int(home_team_row['Home']), int(away_team_row['Away'])
+        home_attack_specific = (home_gf_h / home_matches_h) / avg_league_home_goals
+        away_defense_specific = (away_ga_a / away_matches_a) / avg_league_home_goals
+        away_attack_specific = (away_gf_a / away_matches_a) / avg_league_away_goals
+        home_defense_specific = (home_ga_h / home_matches_h) / avg_league_away_goals
 
-        home_attack = (home_gf_h / home_matches_h) / avg_league_home_goals
-        away_defense = (away_ga_a / away_matches_a) / avg_league_home_goals
-        home_exp_goals = home_attack * away_defense * avg_league_home_goals
+        # --- 4. Calculate Attack and Defense Strength (Overall) ---
+        home_attack_overall = (home_team_row['GF'] / home_team_row['M']) / avg_league_scored
+        away_defense_overall = (away_team_row['GA'] / away_team_row['M']) / avg_league_conceded
+        away_attack_overall = (away_team_row['GF'] / away_team_row['M']) / avg_league_scored
+        home_defense_overall = (home_team_row['GA'] / home_team_row['M']) / avg_league_conceded
+        
+        # --- 5. Weighted Expected Goals ---
+        home_exp_goals = ((home_attack_specific * away_defense_specific * avg_league_home_goals) + \
+                          (home_attack_overall * away_defense_overall * avg_league_scored)) / 2
+        
+        away_exp_goals = ((away_attack_specific * home_defense_specific * avg_league_away_goals) + \
+                          (away_attack_overall * home_defense_overall * avg_league_scored)) / 2
 
-        away_attack = (away_gf_a / away_matches_a) / avg_league_away_goals
-        home_defense = (home_ga_h / home_matches_h) / avg_league_away_goals
-        away_exp_goals = away_attack * home_defense * avg_league_away_goals
-
+        # --- 6. Calculate Draw Probability from Scorelines ---
         draw_prob = sum(((home_exp_goals**i * math.exp(-home_exp_goals)) / math.factorial(i)) * \
                         ((away_exp_goals**i * math.exp(-away_exp_goals)) / math.factorial(i)) for i in range(6))
         return draw_prob, home_exp_goals, away_exp_goals
@@ -370,14 +388,22 @@ def calculate_poisson_draw_prob(home_team_name, away_team_name, league_table):
 def calculate_league_averages(league_table):
     """Calculates average goals for the entire league."""
     try:
-        league_table[['GF', 'GA']] = league_table['Goals'].str.split(':', expand=True).astype(int)
-        league_table['M'] = league_table['M'].astype(int)
-        total_goals_scored = league_table['GF'].sum()
-        total_matches_played = league_table['M'].sum() / 2
+        # Ensure correct data types before calculation
+        df = league_table.copy()
+        if 'Goals' not in df.columns or 'M' not in df.columns: return None
+        df[['GF', 'GA']] = df['Goals'].str.split(':', expand=True)
+        # Convert to numeric, coercing errors to NaN, then fill NaNs
+        for col in ['GF', 'GA', 'M']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df.dropna(subset=['GF', 'GA', 'M'], inplace=True)
+        if df.empty: return None
+
+        total_goals_scored = df['GF'].sum()
+        total_matches_played = df['M'].sum() / 2
         if total_matches_played == 0: return None
         avg_goals_per_match = total_goals_scored / total_matches_played
-        avg_scored_per_team_game = (league_table['GF'] / league_table['M']).mean()
-        avg_conceded_per_team_game = (league_table['GA'] / league_table['M']).mean()
+        avg_scored_per_team_game = (df['GF'] / df['M']).mean()
+        avg_conceded_per_team_game = (df['GA'] / df['M']).mean()
         return {
             "avg_goals_per_match": f"{avg_goals_per_match:.2f}",
             "avg_scored_per_team_game": f"{avg_scored_per_team_game:.2f}",
@@ -386,7 +412,7 @@ def calculate_league_averages(league_table):
     except (KeyError, ValueError, TypeError, ZeroDivisionError):
         return None
 
-# --- UI Styling ---
+# --- UI Styling & App Layout ---
 st.markdown("""
     <style>
         body { background-color: #f4f4f9; font-family: 'Arial', sans-serif; }
@@ -396,10 +422,17 @@ st.markdown("""
         .card-title { color: #007BFF; font-weight: bold; font-size: 16px; }
         .card-value { font-size: 22px; font-weight: bold; color: #333; }
         .player-table-header { font-weight: bold; font-size: 14px; }
+        .data-container {
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            background-color: #ffffff;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            margin-top: 10px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# --- App Header and Sidebar ---
 st.markdown('<div class="header">⚽ Elo Ratings Odds Calculator</div>', unsafe_allow_html=True)
 with st.sidebar.expander("How to Use This App", expanded=True):
     st.write("1. **Select Country and League**.")
@@ -410,16 +443,12 @@ st.sidebar.header("⚽ Select Match Details")
 selected_country = st.sidebar.selectbox("Select Country:", list(leagues_dict.keys()), index=0)
 selected_league = st.sidebar.selectbox("Select League:", leagues_dict[selected_country], index=0)
 
-# --- Main App Logic ---
 if st.sidebar.button("Get Ratings", key="fetch_button"):
     with st.spinner(random.choice(spinner_messages)):
         home_table, away_table, league_table = fetch_table_data(selected_country, selected_league)
         if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
-            st.session_state.update({
-                "home_table": home_table, "away_table": away_table,
-                "league_table": league_table, "data_fetched": True
-            })
-            for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches']: 
+            st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True})
+            for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                 st.session_state.pop(key, None)
             st.rerun() 
         else:
@@ -427,10 +456,8 @@ if st.sidebar.button("Get Ratings", key="fetch_button"):
             st.session_state['data_fetched'] = False
 
 if st.session_state.get('data_fetched', False):
-    home_table = st.session_state["home_table"]
-    away_table = st.session_state["away_table"]
-    league_table = st.session_state.get("league_table")
-    
+    home_table, away_table, league_table = st.session_state.home_table, st.session_state.away_table, st.session_state.get("league_table")
+
     with st.expander("🌐 League Averages", expanded=False):
         if isinstance(league_table, pd.DataFrame):
             league_averages = calculate_league_averages(league_table.copy())
@@ -439,18 +466,15 @@ if st.session_state.get('data_fetched', False):
                 avg_cols[0].metric("Avg. Goals per Match", league_averages["avg_goals_per_match"])
                 avg_cols[1].metric("Avg. Scored (per Team/Game)", league_averages["avg_scored_per_team_game"])
                 avg_cols[2].metric("Avg. Conceded (per Team/Game)", league_averages["avg_conceded_per_team_game"])
-            else:
-                st.warning("Could not calculate league averages.")
-        else:
-            st.warning("League table data needed for averages.")
+            else: st.warning("Could not calculate league averages.")
+        else: st.warning("League table data needed for averages.")
 
-    st.markdown('<div class="section-header">⚽ Matchup</div>', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    home_team_name = col1.selectbox("Select Home Team:", home_table["Team"], key="home_team_select")
-    away_team_name = col2.selectbox("Select Away Team:", away_table["Team"], key="away_team_select")
-
-    home_team_data = home_table[home_table["Team"] == home_team_name].iloc[0]
-    away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
+    with st.expander("⚽ Matchup", expanded=True):
+        col1, col2 = st.columns(2)
+        home_team_name = col1.selectbox("Select Home Team:", home_table["Team"], key="home_team_select")
+        away_team_name = col2.selectbox("Select Away Team:", away_table["Team"], key="away_team_select")
+        home_team_data = home_table[home_table["Team"] == home_team_name].iloc[0]
+        away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
 
     if 'last_home_team' not in st.session_state or st.session_state.last_home_team != home_team_name:
         with st.spinner(f"Fetching {home_team_name} data..."):
@@ -511,15 +535,14 @@ if st.session_state.get('data_fetched', False):
              if matches_played >= 6:
                 draw_model_info = "*(Using Poisson Model)*"
                 poisson_draw, home_xg, away_xg = calculate_poisson_draw_prob(home_team_name, away_team_name, league_table)
-                if home_xg is not None:
-                    c2.markdown(f"<div class='card' style='margin-top:0;'><div class='card-title'>Expected Goals (xG)</div><div class='card-value'>{home_xg:.2f} : {away_xg:.2f}</div></div>", unsafe_allow_html=True)
+                if home_xg is not None: c2.markdown(f"<div class='card' style='margin-top:0;'><div class='card-title'>Expected Goals (xG)</div><div class='card-value'>{home_xg:.2f} : {away_xg:.2f}</div></div>", unsafe_allow_html=True)
                 default_draw = poisson_draw
              else:
                 draw_model_info = "*(Using Elo-based estimate)*"
                 default_draw = calculate_elo_based_draw(home_win_prob)
         st.markdown(f"**Draw Probability** {draw_model_info}")
         draw_prob = st.slider("Select Draw Probability", 0.05, 0.4, default_draw, 0.01, help=f"Data-driven estimate is {default_draw:.2%}", label_visibility="collapsed")
-        h_win, a_win = home_win_prob * (1 - draw_prob), away_win_prob * (1 - draw_prob)
+        h_win, a_win = home_win_prob*(1-draw_prob), away_win_prob*(1-draw_prob)
         h_odds, a_odds, d_odds = (1/p if p > 0 else 0 for p in [h_win, a_win, draw_prob])
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"<div class='card'><div class='card-title'>Home Win (1)</div><div class='card-value'>{h_odds:.2f}</div></div>", unsafe_allow_html=True)
@@ -533,65 +556,52 @@ if st.session_state.get('data_fetched', False):
             if lineup_data is None: st.info("Fetching lineup...")
             elif not lineup_data: st.warning("Lineup data not available.")
             else:
-                c1, c2, c3, c4, c5 = st.columns([1, 4, 2, 2, 2])
-                for col, title in zip([c1, c2, c3, c4, c5], ["On", "Player", "Position", "M/G", "Rating"]):
-                    col.markdown(f'<p class="player-table-header">{title}</p>', unsafe_allow_html=True)
+                c1,c2,c3,c4,c5=st.columns([1,4,2,2,2]);[c.markdown(f'<p class="player-table-header">{t}</p>',unsafe_allow_html=True) for c,t in zip([c1,c2,c3,c4,c5],["On","Player","Position","M/G","Rating"])]
                 selected_starters = []
                 for i, p in enumerate(lineup_data):
-                    pc1, pc2, pc3, pc4, pc5 = st.columns([1, 4, 2, 2, 2])
-                    if pc1.checkbox("", value=(i < 11), key=f"check_{team_key}_{i}", label_visibility="collapsed"):
-                        selected_starters.append(p)
-                    pc2.write(p['name'])
-                    pc3.write(p['position'])
-                    pc4.write(p['stats'])
-                    pc5.write(f"**{p['rating']}**")
-                
-                num_selected = len(selected_starters)
-                if num_selected != 11:
-                    st.warning(f"Select 11 starters ({num_selected} selected).")
-                
+                    pc1,pc2,pc3,pc4,pc5 = st.columns([1,4,2,2,2])
+                    if pc1.checkbox("", value=(i<11), key=f"check_{team_key}_{i}",label_visibility="collapsed"): selected_starters.append(p)
+                    pc2.write(p['name']);pc3.write(p['position']);pc4.write(p['stats']);pc5.write(f"**{p['rating']}**")
+                num_selected=len(selected_starters)
+                if num_selected!=11: st.warning(f"Select 11 starters ({num_selected} selected).")
                 total_matches, total_goals = 0, 0
                 for player in selected_starters:
                     try:
                         matches, goals = map(int, player['stats'].split('/'))
-                        total_matches += matches
-                        total_goals += goals
-                    except (ValueError, AttributeError): pass
-                
-                starters_rating_sum = sum(p['rating'] for p in selected_starters)
-                avg_rating = starters_rating_sum / num_selected if num_selected > 0 else 0
-                st.markdown("---")
-                st.write("**Starting Lineup Analysis**")
-                m1, m2 = st.columns(2)
-                m3, m4 = st.columns(2)
-                m1.metric("Total Starters Rating", starters_rating_sum)
-                m2.metric("Average Starter Rating", f"{avg_rating:.2f}")
-                m3.metric("Total Matches (Starters)", total_matches)
-                m4.metric("Total Goals (Starters)", total_goals)
-
+                        total_matches += matches; total_goals += goals
+                    except: pass
+                total_rating = sum(p['rating'] for p in selected_starters)
+                avg_rating = total_rating/num_selected if num_selected>0 else 0
+                st.markdown("---");st.write("**Starting Lineup Analysis**")
+                m1,m2=st.columns(2);m3,m4=st.columns(2)
+                m1.metric("Total Starters Rating",total_rating);m2.metric("Average Starter Rating",f"{avg_rating:.2f}")
+                m3.metric("Total Matches (Starters)",total_matches);m4.metric("Total Goals (Starters)",total_goals)
         col1, col2 = st.columns(2)
-        with col1: display_interactive_lineup(f"{home_team_name} (Home)", "home_lineup")
-        with col2: display_interactive_lineup(f"{away_team_name} (Away)", "away_lineup")
+        with col1: display_interactive_lineup(f"{home_team_name} (Home)","home_lineup")
+        with col2: display_interactive_lineup(f"{away_team_name} (Away)","away_lineup")
 
     with st.expander("👥 Full Squads", expanded=False):
-        def display_squad(team_name, squad_key):
+        def display_squad(team_name, squad_key, lineup_key):
             st.subheader(f"{team_name}")
             squad_data = st.session_state.get(squad_key)
+            lineup_data = st.session_state.get(lineup_key)
             if squad_data is None: st.info("Fetching squad...")
             elif not squad_data: st.warning("Squad data not available.")
             else:
-                c1, c2, c3 = st.columns([4, 2, 2])
-                for col, title in zip([c1, c2, c3], ["Player", "Age", "Rating"]):
-                    col.markdown(f'<p class="player-table-header">{title}</p>', unsafe_allow_html=True)
+                starter_names = set()
+                if lineup_data:
+                    starter_names = {p['name'] for p in lineup_data[:11]}
+                c1,c2,c3=st.columns([4,2,2]);[c.markdown(f'<p class="player-table-header">{t}</p>',unsafe_allow_html=True) for c,t in zip([c1,c2,c3],["Player","Age","Rating"])]
                 for p in squad_data:
-                    pc1, pc2, pc3 = st.columns([4, 2, 2])
-                    pc1.write(p['name'])
-                    pc2.write(p['age'])
-                    pc3.write(f"**{p['rating']}**")
-
+                    pc1,pc2,pc3=st.columns([4,2,2])
+                    if p['name'] in starter_names:
+                        pc1.write(f"**{p['name']}**")
+                    else:
+                        pc1.write(p['name'])
+                    pc2.write(p['age']);pc3.write(f"**{p['rating']}**")
         col1, col2 = st.columns(2)
-        with col1: display_squad(f"{home_team_name} (Home)", "home_squad")
-        with col2: display_squad(f"{away_team_name} (Away)", "away_squad")
+        with col1: display_squad(f"{home_team_name} (Home)","home_squad", "home_lineup")
+        with col2: display_squad(f"{away_team_name} (Away)","away_squad", "away_lineup")
 
     with st.expander("📅 Last 5 League Matches", expanded=False):
         def display_last_matches(team_name, matches_key):
@@ -603,11 +613,9 @@ if st.session_state.get('data_fetched', False):
                 st.metric("Points in Last 5 League Matches", matches_data["points"])
                 for match in matches_data["matches"]:
                     st.text(f"{match['date']}: {match['opponent']}  ({match['result']})")
-        
         col1, col2 = st.columns(2)
-        with col1: display_last_matches(f"{home_team_name} (Home)", "home_matches")
-        with col2: display_last_matches(f"{away_team_name} (Away)", "away_matches")
-
+        with col1: display_last_matches(f"{home_team_name} (Home)","home_matches")
+        with col2: display_last_matches(f"{away_team_name} (Away)","away_matches")
 else:
     st.info("Please click 'Get Ratings' in the sidebar to begin.")
 
