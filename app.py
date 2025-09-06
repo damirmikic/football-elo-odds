@@ -408,6 +408,36 @@ if st.session_state.get('data_fetched', False):
             st.session_state.update({'away_lineup': lineup, 'away_squad': squad, 'away_matches': matches, 'last_away_team': away_team_name})
             st.rerun()
 
+    with st.expander("📊 Team Statistics", expanded=False):
+        if isinstance(league_table, pd.DataFrame):
+            stat_col1, stat_col2 = st.columns(2)
+            def display_team_stats(team_name, table, column):
+                try:
+                    normalized_target = normalize_team_name(team_name)
+                    table['normalized_name'] = table.iloc[:, 1].apply(normalize_team_name)
+                    team_stats_row = table[table['normalized_name'] == normalized_target]
+                    if team_stats_row.empty:
+                        column.warning(f"Stats not found for {team_name}.")
+                        return 0
+                    team_stats = team_stats_row.iloc[0]
+                    column.markdown(f"**{team_name}**")
+                    column.metric(label="League Position", value=f"#{int(team_stats.iloc[0])}")
+                    matches, points = int(team_stats['M']), int(team_stats['P.'])
+                    gf, ga = map(int, team_stats['Goals'].split(':'))
+                    column.markdown(f"**Global Averages**")
+                    column.metric(label="Avg. Goals Scored", value=f"{gf/matches:.2f}")
+                    column.metric(label="Avg. Goals Conceded", value=f"{ga/matches:.2f}")
+                    column.metric(label="Avg. Goals per Match", value=f"{(gf + ga)/matches:.2f}")
+                    column.metric(label="Avg. Points per Game", value=f"{points/matches:.2f}")
+                    return matches
+                except (IndexError, ValueError, KeyError, TypeError):
+                    column.warning(f"Statistics unavailable for {team_name}.")
+                    return 0
+            matches_played = display_team_stats(home_team_name, league_table, stat_col1)
+            display_team_stats(away_team_name, league_table, stat_col2)
+        else:
+            st.warning("League table not available for detailed statistics.")
+
     with st.expander("📈 Odds Analysis", expanded=True):
         home_rating, away_rating = home_team_data['Rating'], away_team_data['Rating']
         
@@ -442,22 +472,21 @@ if st.session_state.get('data_fetched', False):
             elif not lineup_data: st.warning("Lineup data not available.")
             else:
                 header_cols = st.columns([1, 4, 2, 2, 2])
-                with header_cols[0]: st.markdown('<p class="player-table-header">On</p>', unsafe_allow_html=True)
-                with header_cols[1]: st.markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
-                with header_cols[2]: st.markdown('<p class="player-table-header">Position</p>', unsafe_allow_html=True)
-                with header_cols[3]: st.markdown('<p class="player-table-header">M/G</p>', unsafe_allow_html=True)
-                with header_cols[4]: st.markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
+                header_cols[0].markdown('<p class="player-table-header">On</p>', unsafe_allow_html=True)
+                header_cols[1].markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
+                header_cols[2].markdown('<p class="player-table-header">Position</p>', unsafe_allow_html=True)
+                header_cols[3].markdown('<p class="player-table-header">M/G</p>', unsafe_allow_html=True)
+                header_cols[4].markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
 
                 selected_starters = []
                 for i, p in enumerate(lineup_data):
                     player_cols = st.columns([1, 4, 2, 2, 2])
-                    with player_cols[0]:
-                        is_starter = st.checkbox("", value=(i < 11), key=f"check_{team_key}_{i}", label_visibility="collapsed")
-                        if is_starter: selected_starters.append(p)
-                    with player_cols[1]: st.write(p['name'])
-                    with player_cols[2]: st.write(p['position'])
-                    with player_cols[3]: st.write(p['stats'])
-                    with player_cols[4]: st.write(f"**{p['rating']}**")
+                    is_starter = player_cols[0].checkbox("", value=(i < 11), key=f"check_{team_key}_{i}", label_visibility="collapsed")
+                    if is_starter: selected_starters.append(p)
+                    player_cols[1].write(p['name'])
+                    player_cols[2].write(p['position'])
+                    player_cols[3].write(p['stats'])
+                    player_cols[4].write(f"**{p['rating']}**")
                 
                 num_selected = len(selected_starters)
                 if num_selected != 11: st.warning(f"Select 11 starters ({num_selected} selected).")
@@ -484,6 +513,53 @@ if st.session_state.get('data_fetched', False):
             display_interactive_lineup(f"{home_team_name} (Home)", "home_lineup")
         with col2:
             display_interactive_lineup(f"{away_team_name} (Away)", "away_lineup")
+            
+    with st.expander("👥 Full Squads", expanded=False):
+        def display_squad(team_name, squad_key, lineup_key):
+            st.subheader(f"{team_name}")
+            squad_data = st.session_state.get(squad_key)
+            lineup_data = st.session_state.get(lineup_key)
+            if squad_data is None: st.info("Fetching squad...")
+            elif not squad_data: st.warning("Squad data not available.")
+            else:
+                starter_names = set()
+                if lineup_data:
+                    starter_names = {p['name'] for p in lineup_data[:11]}
+                header_cols = st.columns([4, 2, 2])
+                header_cols[0].markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
+                header_cols[1].markdown('<p class="player-table-header">Age</p>', unsafe_allow_html=True)
+                header_cols[2].markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
+                for p in squad_data:
+                    player_cols = st.columns([4, 2, 2])
+                    if p['name'] in starter_names:
+                        player_cols[0].write(f"**{p['name']}**")
+                    else:
+                        player_cols[0].write(p['name'])
+                    player_cols[1].write(str(p['age']))
+                    player_cols[2].write(f"**{p['rating']}**")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            display_squad(f"{home_team_name} (Home)", "home_squad", "home_lineup")
+        with col2:
+            display_squad(f"{away_team_name} (Away)", "away_squad", "away_lineup")
+
+    with st.expander("📅 Last 5 League Matches", expanded=False):
+        def display_last_matches(team_name, matches_key):
+            st.subheader(f"{team_name}")
+            matches_data = st.session_state.get(matches_key)
+            if matches_data is None: st.info("Fetching matches...")
+            elif not matches_data["matches"]: st.warning("Recent match data not available.")
+            else:
+                st.metric("Points in Last 5 League Matches", matches_data["points"])
+                for match in matches_data["matches"]:
+                    st.text(f"{match['date']}: {match['opponent']}  ({match['result']})")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            display_last_matches(f"{home_team_name} (Home)", "home_matches")
+        with col2:
+            display_last_matches(f"{away_team_name} (Away)", "away_matches")
 
 else:
     st.info("Please click 'Get Ratings' in the sidebar to begin.")
