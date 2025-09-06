@@ -267,8 +267,6 @@ def fetch_team_page_data(team_name, team_url):
         response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
-
-        # Parse Lineup
         lineup_table = get_correct_table(soup, team_name, team_url, 'Expected Lineup', 'line1', 'line2')
         lineup_data = []
         if lineup_table:
@@ -286,52 +284,9 @@ def fetch_team_page_data(team_name, team_url):
                         rating = int(cols[3].get_text(strip=True))
                         lineup_data.append({"name": name, "position": pos, "stats": stats, "rating": rating})
                     except (ValueError, IndexError): continue
-        
-        # Parse Squad
-        squad_table = get_correct_table(soup, team_name, team_url, 'Squad', 'squad1', 'squad2')
-        squad_data = []
-        if squad_table:
-            for row in squad_table.find_all('tr'):
-                if row.find('th') or row.find('hr'): continue
-                cols = row.find_all('td')
-                if len(cols) == 3:
-                    try:
-                        player_div = cols[0].find("div", class_="nomobil")
-                        if not player_div: continue
-                        img_tag = player_div.find('img')
-                        full_text = (img_tag.next_sibling.strip() if img_tag and img_tag.next_sibling else player_div.get_text(strip=True))
-                        match = re.match(r'(.+?)\s*\((\d+)\)', full_text)
-                        name, age = (match.group(1).strip(), int(match.group(2))) if match else (full_text, "N/A")
-                        rating = int(cols[2].get_text(strip=True))
-                        squad_data.append({"name": name, "age": age, "rating": rating})
-                    except (ValueError, IndexError): continue
-        
-        # Parse Last Matches
-        last_matches_data, points, league_matches_count = [], 0, 0
-        matches_table = soup.find('table', {'class': 'bigtable', 'cellspacing': '0'})
-        if matches_table:
-            for row in matches_table.find_all('tr'):
-                if league_matches_count >= 5: break
-                cols = row.find_all('td')
-                if len(cols) > 9 and "cup" not in cols[7].get_text(strip=True).lower():
-                    date = cols[1].get_text(strip=True, separator=" ").split(" ")[0]
-                    opponent = cols[2].get_text(strip=True)
-                    result = cols[10].get_text(strip=True)
-                    if result:
-                        last_matches_data.append({"date": date, "opponent": opponent, "result": result})
-                        try:
-                            own_score, opp_score = map(int, result.split(':'))
-                            is_home_match = team_name in opponent.split('-')[0]
-                            if (is_home_match and own_score > opp_score) or (not is_home_match and opp_score > own_score):
-                                points += 3
-                            elif own_score == opp_score:
-                                points += 1
-                        except (ValueError, IndexError): pass
-                        league_matches_count += 1
-
-        return lineup_data, squad_data, {"matches": last_matches_data, "points": points}
+        return lineup_data
     except Exception:
-        return None, None, None
+        return None
 
 def calculate_outcome_probabilities(home_rating, away_rating):
     """Calculates home, draw, and away probabilities using the provided formula."""
@@ -340,13 +295,15 @@ def calculate_outcome_probabilities(home_rating, away_rating):
     draw_scale = 500.0
     
     p_draw_raw = draw_max * math.exp(-((D / draw_scale)**2))
-    p_home_raw = 1 / (1 + 10**(-D / 400))
+    # Adjust home win probability slightly for home advantage, common in Elo models
+    p_home_raw = 1 / (1 + 10**(-(D + 65) / 400)) # Adding 65 Elo points for home advantage
     p_away_raw = 1 - p_home_raw
 
-    total = p_home_raw + p_draw_raw + p_away_raw
-    p_home = p_home_raw / total
-    p_draw = p_draw_raw / total
-    p_away = p_away_raw / total
+    # Normalize probabilities to sum to 1
+    total_raw = p_home_raw + p_draw_raw + p_away_raw
+    p_home = p_home_raw / total_raw
+    p_draw = p_draw_raw / total_raw
+    p_away = p_away_raw / total_raw
     
     return p_home, p_draw, p_away
 
@@ -378,7 +335,7 @@ if st.sidebar.button("Get Ratings", key="fetch_button"):
         home_table, away_table, league_table = fetch_table_data(selected_country, selected_league)
         if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
             st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True})
-            for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
+            for key in ['home_lineup', 'away_lineup', 'last_home_team', 'last_away_team']: 
                 st.session_state.pop(key, None)
             st.rerun() 
         else:
@@ -396,47 +353,17 @@ if st.session_state.get('data_fetched', False):
         away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
 
     if 'last_home_team' not in st.session_state or st.session_state.last_home_team != home_team_name:
-        with st.spinner(f"Fetching {home_team_name} data..."):
-            lineup, squad, matches = fetch_team_page_data(home_team_name, home_team_data['URL'])
-            st.session_state.update({'home_lineup': lineup, 'home_squad': squad, 'home_matches': matches, 'last_home_team': home_team_name})
+        with st.spinner(f"Fetching {home_team_name} lineup..."):
+            st.session_state['home_lineup'] = fetch_team_lineup(home_team_name, home_team_data['URL'])
+            st.session_state.last_home_team = home_team_name
             time.sleep(1)
             st.rerun()
 
     if 'last_away_team' not in st.session_state or st.session_state.last_away_team != away_team_name:
-        with st.spinner(f"Fetching {away_team_name} data..."):
-            lineup, squad, matches = fetch_team_page_data(away_team_name, away_team_data['URL'])
-            st.session_state.update({'away_lineup': lineup, 'away_squad': squad, 'away_matches': matches, 'last_away_team': away_team_name})
+        with st.spinner(f"Fetching {away_team_name} lineup..."):
+            st.session_state['away_lineup'] = fetch_team_lineup(away_team_name, away_team_data['URL'])
+            st.session_state.last_away_team = away_team_name
             st.rerun()
-
-    with st.expander("📊 Team Statistics", expanded=False):
-        if isinstance(league_table, pd.DataFrame):
-            stat_col1, stat_col2 = st.columns(2)
-            def display_team_stats(team_name, table, column):
-                try:
-                    normalized_target = normalize_team_name(team_name)
-                    table['normalized_name'] = table.iloc[:, 1].apply(normalize_team_name)
-                    team_stats_row = table[table['normalized_name'] == normalized_target]
-                    if team_stats_row.empty:
-                        column.warning(f"Stats not found for {team_name}.")
-                        return 0
-                    team_stats = team_stats_row.iloc[0]
-                    column.markdown(f"**{team_name}**")
-                    column.metric(label="League Position", value=f"#{int(team_stats.iloc[0])}")
-                    matches, points = int(team_stats['M']), int(team_stats['P.'])
-                    gf, ga = map(int, team_stats['Goals'].split(':'))
-                    column.markdown(f"**Global Averages**")
-                    column.metric(label="Avg. Goals Scored", value=f"{gf/matches:.2f}")
-                    column.metric(label="Avg. Goals Conceded", value=f"{ga/matches:.2f}")
-                    column.metric(label="Avg. Goals per Match", value=f"{(gf + ga)/matches:.2f}")
-                    column.metric(label="Avg. Points per Game", value=f"{points/matches:.2f}")
-                    return matches
-                except (IndexError, ValueError, KeyError, TypeError):
-                    column.warning(f"Statistics unavailable for {team_name}.")
-                    return 0
-            matches_played = display_team_stats(home_team_name, league_table, stat_col1)
-            display_team_stats(away_team_name, league_table, stat_col2)
-        else:
-            st.warning("League table not available for detailed statistics.")
 
     with st.expander("📈 Odds Analysis", expanded=True):
         home_rating, away_rating = home_team_data['Rating'], away_team_data['Rating']
@@ -447,7 +374,7 @@ if st.session_state.get('data_fetched', False):
 
         p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating)
         
-        st.markdown(f"**Calculated Probabilities:**")
+        st.markdown(f"**Calculated Fair Probabilities:**")
         prob_cols = st.columns(3)
         prob_cols[0].metric("Home Win", f"{p_home:.2%}")
         prob_cols[1].metric("Draw", f"{p_draw:.2%}")
@@ -455,10 +382,14 @@ if st.session_state.get('data_fetched', False):
         
         st.markdown("---")
         
-        h_odds = 1 / p_home if p_home > 0 else 0
-        d_odds = 1 / p_draw if p_draw > 0 else 0
-        a_odds = 1 / p_away if p_away > 0 else 0
+        margin = st.slider("Apply Bookmaker's Margin (%):", 0, 15, 5, 1)
+        margin_decimal = margin / 100.0
+
+        h_odds = 1 / (p_home * (1 + margin_decimal)) if p_home > 0 else 0
+        d_odds = 1 / (p_draw * (1 + margin_decimal)) if p_draw > 0 else 0
+        a_odds = 1 / (p_away * (1 + margin_decimal)) if p_away > 0 else 0
         
+        st.write("**Odds with Margin Applied:**")
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"<div class='card'><div class='card-title'>Home Win (1)</div><div class='card-value'>{h_odds:.2f}</div></div>", unsafe_allow_html=True)
         c2.markdown(f"<div class='card'><div class='card-title'>Draw (X)</div><div class='card-value'>{d_odds:.2f}</div></div>", unsafe_allow_html=True)
@@ -472,21 +403,22 @@ if st.session_state.get('data_fetched', False):
             elif not lineup_data: st.warning("Lineup data not available.")
             else:
                 header_cols = st.columns([1, 4, 2, 2, 2])
-                header_cols[0].markdown('<p class="player-table-header">On</p>', unsafe_allow_html=True)
-                header_cols[1].markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
-                header_cols[2].markdown('<p class="player-table-header">Position</p>', unsafe_allow_html=True)
-                header_cols[3].markdown('<p class="player-table-header">M/G</p>', unsafe_allow_html=True)
-                header_cols[4].markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
+                with header_cols[0]: st.markdown('<p class="player-table-header">On</p>', unsafe_allow_html=True)
+                with header_cols[1]: st.markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
+                with header_cols[2]: st.markdown('<p class="player-table-header">Position</p>', unsafe_allow_html=True)
+                with header_cols[3]: st.markdown('<p class="player-table-header">M/G</p>', unsafe_allow_html=True)
+                with header_cols[4]: st.markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
 
                 selected_starters = []
                 for i, p in enumerate(lineup_data):
                     player_cols = st.columns([1, 4, 2, 2, 2])
-                    is_starter = player_cols[0].checkbox("", value=(i < 11), key=f"check_{team_key}_{i}", label_visibility="collapsed")
-                    if is_starter: selected_starters.append(p)
-                    player_cols[1].write(p['name'])
-                    player_cols[2].write(p['position'])
-                    player_cols[3].write(p['stats'])
-                    player_cols[4].write(f"**{p['rating']}**")
+                    with player_cols[0]:
+                        is_starter = st.checkbox("", value=(i < 11), key=f"check_{team_key}_{i}", label_visibility="collapsed")
+                        if is_starter: selected_starters.append(p)
+                    with player_cols[1]: st.write(p['name'])
+                    with player_cols[2]: st.write(p['position'])
+                    with player_cols[3]: st.write(p['stats'])
+                    with player_cols[4]: st.write(f"**{p['rating']}**")
                 
                 num_selected = len(selected_starters)
                 if num_selected != 11: st.warning(f"Select 11 starters ({num_selected} selected).")
@@ -513,53 +445,6 @@ if st.session_state.get('data_fetched', False):
             display_interactive_lineup(f"{home_team_name} (Home)", "home_lineup")
         with col2:
             display_interactive_lineup(f"{away_team_name} (Away)", "away_lineup")
-            
-    with st.expander("👥 Full Squads", expanded=False):
-        def display_squad(team_name, squad_key, lineup_key):
-            st.subheader(f"{team_name}")
-            squad_data = st.session_state.get(squad_key)
-            lineup_data = st.session_state.get(lineup_key)
-            if squad_data is None: st.info("Fetching squad...")
-            elif not squad_data: st.warning("Squad data not available.")
-            else:
-                starter_names = set()
-                if lineup_data:
-                    starter_names = {p['name'] for p in lineup_data[:11]}
-                header_cols = st.columns([4, 2, 2])
-                header_cols[0].markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
-                header_cols[1].markdown('<p class="player-table-header">Age</p>', unsafe_allow_html=True)
-                header_cols[2].markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
-                for p in squad_data:
-                    player_cols = st.columns([4, 2, 2])
-                    if p['name'] in starter_names:
-                        player_cols[0].write(f"**{p['name']}**")
-                    else:
-                        player_cols[0].write(p['name'])
-                    player_cols[1].write(str(p['age']))
-                    player_cols[2].write(f"**{p['rating']}**")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            display_squad(f"{home_team_name} (Home)", "home_squad", "home_lineup")
-        with col2:
-            display_squad(f"{away_team_name} (Away)", "away_squad", "away_lineup")
-
-    with st.expander("📅 Last 5 League Matches", expanded=False):
-        def display_last_matches(team_name, matches_key):
-            st.subheader(f"{team_name}")
-            matches_data = st.session_state.get(matches_key)
-            if matches_data is None: st.info("Fetching matches...")
-            elif not matches_data["matches"]: st.warning("Recent match data not available.")
-            else:
-                st.metric("Points in Last 5 League Matches", matches_data["points"])
-                for match in matches_data["matches"]:
-                    st.text(f"{match['date']}: {match['opponent']}  ({match['result']})")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            display_last_matches(f"{home_team_name} (Home)", "home_matches")
-        with col2:
-            display_last_matches(f"{away_team_name} (Away)", "away_matches")
 
 else:
     st.info("Please click 'Get Ratings' in the sidebar to begin.")
