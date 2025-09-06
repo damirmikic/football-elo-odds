@@ -446,7 +446,7 @@ if st.sidebar.button("Get Ratings", key="fetch_button"):
 
 if st.session_state.get('data_fetched', False):
     home_table, away_table, league_table = st.session_state.home_table, st.session_state.away_table, st.session_state.get("league_table")
-
+    
     with st.expander("🌐 League Averages", expanded=False):
         if isinstance(league_table, pd.DataFrame):
             league_averages = calculate_league_averages(league_table.copy())
@@ -565,9 +565,12 @@ if st.session_state.get('data_fetched', False):
                 m1,m2=st.columns(2);m3,m4=st.columns(2)
                 m1.metric("Total Starters Rating",total_rating);m2.metric("Average Starter Rating",f"{avg_rating:.2f}")
                 m3.metric("Total Matches (Starters)",total_matches);m4.metric("Total Goals (Starters)",total_goals)
+        
         col1, col2 = st.columns(2)
-        with col1: display_interactive_lineup(f"{home_team_name} (Home)","home_lineup")
-        with col2: display_interactive_lineup(f"{away_team_name} (Away)","away_lineup")
+        with col1:
+            display_interactive_lineup(f"{home_team_name} (Home)","home_lineup")
+        with col2:
+            display_interactive_lineup(f"{away_team_name} (Away)","away_lineup")
 
     with st.expander("👥 Full Squads", expanded=False):
         def display_squad(team_name, squad_key, lineup_key):
@@ -588,9 +591,12 @@ if st.session_state.get('data_fetched', False):
                     else:
                         pc1.write(p['name'])
                     pc2.write(p['age']);pc3.write(f"**{p['rating']}**")
+        
         col1, col2 = st.columns(2)
-        with col1: display_squad(f"{home_team_name} (Home)","home_squad", "home_lineup")
-        with col2: display_squad(f"{away_team_name} (Away)","away_squad", "away_lineup")
+        with col1:
+            display_squad(f"{home_team_name} (Home)","home_squad", "home_lineup")
+        with col2:
+            display_squad(f"{away_team_name} (Away)","away_squad", "away_lineup")
 
     with st.expander("📅 Last 5 League Matches", expanded=False):
         def display_last_matches(team_name, matches_key):
@@ -602,9 +608,12 @@ if st.session_state.get('data_fetched', False):
                 st.metric("Points in Last 5 League Matches", matches_data["points"])
                 for match in matches_data["matches"]:
                     st.text(f"{match['date']}: {match['opponent']}  ({match['result']})")
+        
         col1, col2 = st.columns(2)
-        with col1: display_last_matches(f"{home_team_name} (Home)","home_matches")
-        with col2: display_last_matches(f"{away_team_name} (Away)","away_matches")
+        with col1:
+            display_last_matches(f"{home_team_name} (Home)","home_matches")
+        with col2:
+            display_last_matches(f"{away_team_name} (Away)","away_matches")
 else:
     st.info("Please click 'Get Ratings' in the sidebar to begin.")
 
