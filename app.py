@@ -341,7 +341,7 @@ def calculate_outcome_probabilities(home_rating, away_rating):
     
     p_draw_raw = draw_max * math.exp(-((D / draw_scale)**2))
     # Adjust home win probability slightly for home advantage, common in Elo models
-    p_home_raw = 1 / (1 + 10**(-(D + 65) / 400)) # Adding 65 Elo points for home advantage
+    p_home_raw = 1 / (1 + 10**(-(D) / 400))
     p_away_raw = 1 - p_home_raw
 
     # Normalize probabilities to sum to 1
