@@ -348,8 +348,9 @@ def fetch_team_page_data(team_name, team_url):
                         last_matches_data.append({"date": date, "opponent": opponent, "result": result})
                         try:
                             own_score, opp_score = map(int, result.split(':'))
-                            is_home_match = team_name in opponent.split('-')[0]
-                            if (is_home_match and own_score > opp_score) or (not is_home_match and opp_score > own_score):
+                            # FIX: Make the 'in' check case-insensitive
+                            is_home_match = team_name.lower() in opponent.split('-')[0].lower()
+                            if (is_home_match and own_score > opp_score) or (not is_home_match and own_score < opp_score):
                                 points += 3
                             elif own_score == opp_score:
                                 points += 1
