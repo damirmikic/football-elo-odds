@@ -470,6 +470,22 @@ if st.session_state.get('data_fetched', False):
         c2.markdown(f"<div class='card'><div class='card-title'>Draw (X)</div><div class='card-value'>{d_odds:.2f}</div></div>", unsafe_allow_html=True)
         c3.markdown(f"<div class='card'><div class='card-title'>Away Win (2)</div><div class='card-value'>{a_odds:.2f}</div></div>", unsafe_allow_html=True)
 
+        st.markdown("---")
+        st.write("**Draw No Bet Odds with Margin Applied:**")
+
+        # Calculate Draw No Bet probabilities
+        p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
+        p_dnb_away = p_away / (p_home + p_away) if (p_home + p_away) > 0 else 0
+        
+        # Apply margin to DNB probabilities
+        dnb_h_odds = 1 / (p_dnb_home * (1 + margin_decimal)) if p_dnb_home > 0 else 0
+        dnb_a_odds = 1 / (p_dnb_away * (1 + margin_decimal)) if p_dnb_away > 0 else 0
+
+        dnb_c1, dnb_c2 = st.columns(2)
+        dnb_c1.markdown(f"<div class='card'><div class='card-title'>Home (Draw No Bet)</div><div class='card-value'>{dnb_h_odds:.2f}</div></div>", unsafe_allow_html=True)
+        dnb_c2.markdown(f"<div class='card'><div class='card-title'>Away (Draw No Bet)</div><div class='card-value'>{dnb_a_odds:.2f}</div></div>", unsafe_allow_html=True)
+
+
     with st.expander("📋 Interactive Lineups", expanded=True):
         def display_interactive_lineup(team_name, team_key):
             st.subheader(f"{team_name}")
@@ -573,4 +589,3 @@ if st.session_state.get('data_fetched', False):
 
 else:
     st.info("Please click 'Get Ratings' in the sidebar to begin.")
-
