@@ -11,8 +11,8 @@ import re
 # Set page title and icon
 st.set_page_config(page_title="Elo Ratings Odds Calculator", page_icon="odds_icon.png")
 
-# Dictionary of countries and leagues
-leagues_dict = {
+# Dictionary of countries and leagues for Men
+leagues_dict_men = {
     "England": ["UK1", "UK2", "UK3", "UK4", "UK5", "UK6N", "UK6S", "UK7N"],
     "Germany": ["DE1", "DE2", "DE3", "DE4SW", "DE4W", "DE4N", "DE4NO", "DE4B"],
     "Italy": ["IT1", "IT2", "IT3C", "IT3B", "IT3A"],
@@ -136,7 +136,11 @@ leagues_dict = {
     "Cameroon": ["CM1"],
     "Tanzania": ["TZ1"],
     "Gambia": ["GM1"],
-    "Sudan": ["SD1"],
+    "Sudan": ["SD1"]
+}
+
+# Dictionary of countries and leagues for Women
+leagues_dict_women = {
     "England-Women": ["UW1", "UW2"],
     "Spain-Women": ["EW1", "EW2"],
     "Germany-Women": ["GW1", "GW2"],
@@ -160,6 +164,7 @@ leagues_dict = {
     "Australia-Women": ["AW1"],
     "South-Korea-Women": ["KX1"]
 }
+
 spinner_messages = [
     "Fetching the latest football ratings...",
     "Hold tight, we're gathering the data...",
@@ -389,25 +394,45 @@ st.markdown("""
 
 st.markdown('<div class="header">⚽ Elo Ratings Odds Calculator</div>', unsafe_allow_html=True)
 with st.sidebar.expander("How to Use This App", expanded=True):
-    st.write("1. **Select Country and League**.")
+    st.write("1. **Select Gender, Country and League**.")
     st.write("2. **Click 'Get Ratings'** to load data.")
     st.write("3. **Select Teams** for analysis.")
     st.write("4. Data is fetched automatically.")
 st.sidebar.header("⚽ Select Match Details")
-selected_country = st.sidebar.selectbox("Select Country:", list(leagues_dict.keys()), index=0)
-selected_league = st.sidebar.selectbox("Select League:", leagues_dict[selected_country], index=0)
 
-if st.sidebar.button("Get Ratings", key="fetch_button"):
-    with st.spinner(random.choice(spinner_messages)):
-        home_table, away_table, league_table = fetch_table_data(selected_country, selected_league)
-        if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
-            st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True})
-            for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
-                st.session_state.pop(key, None)
-            st.rerun() 
-        else:
-            st.error("Error fetching data. Source may be unavailable or structure changed.")
-            st.session_state['data_fetched'] = False
+# --- Tabbed Interface ---
+tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
+
+with tab1:
+    selected_country_men = st.selectbox("Select Country:", list(leagues_dict_men.keys()), key="country_men")
+    selected_league_men = st.selectbox("Select League:", leagues_dict_men[selected_country_men], key="league_men")
+    if st.button("Get Ratings", key="fetch_button_men"):
+        with st.spinner(random.choice(spinner_messages)):
+            home_table, away_table, league_table = fetch_table_data(selected_country_men, selected_league_men)
+            if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
+                st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True, "gender": "men"})
+                for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
+                    st.session_state.pop(key, None)
+                st.rerun()
+            else:
+                st.error("Error fetching data. Source may be unavailable or structure changed.")
+                st.session_state['data_fetched'] = False
+
+with tab2:
+    selected_country_women = st.selectbox("Select Country:", list(leagues_dict_women.keys()), key="country_women")
+    selected_league_women = st.selectbox("Select League:", leagues_dict_women[selected_country_women], key="league_women")
+    if st.button("Get Ratings", key="fetch_button_women"):
+        with st.spinner(random.choice(spinner_messages)):
+            home_table, away_table, league_table = fetch_table_data(selected_country_women, selected_league_women)
+            if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
+                st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True, "gender": "women"})
+                for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
+                    st.session_state.pop(key, None)
+                st.rerun()
+            else:
+                st.error("Error fetching data. Source may be unavailable or structure changed.")
+                st.session_state['data_fetched'] = False
+
 
 if st.session_state.get('data_fetched', False):
     home_table, away_table, league_table = st.session_state.home_table, st.session_state.away_table, st.session_state.get("league_table")
