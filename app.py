@@ -396,9 +396,9 @@ st.markdown("""
 st.markdown('<div class="header">⚽ Elo Ratings Odds Calculator</div>', unsafe_allow_html=True)
 with st.sidebar.expander("How to Use This App", expanded=True):
     st.write("1. **Select Gender, Country and League**.")
-    st.write("2. **Click 'Get Ratings'** to load data.")
+    st.write("2. **Ratings load automatically** when league is selected.")
     st.write("3. **Select Teams** for analysis.")
-    st.write("4. Data is fetched automatically.")
+    st.write("4. **Team data fetches automatically** when teams are chosen.")
 st.sidebar.header("⚽ Select Match Details")
 
 # --- Tabbed Interface ---
@@ -407,7 +407,11 @@ tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
 with tab1:
     selected_country_men = st.selectbox("Select Country:", list(leagues_dict_men.keys()), key="country_men")
     selected_league_men = st.selectbox("Select League:", leagues_dict_men[selected_country_men], key="league_men")
-    if st.button("Get Ratings", key="fetch_button_men"):
+    
+    # Auto-fetch data when league changes
+    current_league_key = f"{selected_country_men}_{selected_league_men}_men"
+    if st.session_state.get('current_league') != current_league_key:
+        st.session_state['current_league'] = current_league_key
         with st.spinner(random.choice(spinner_messages)):
             home_table, away_table, league_table = fetch_table_data(selected_country_men, selected_league_men)
             if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
@@ -422,7 +426,11 @@ with tab1:
 with tab2:
     selected_country_women = st.selectbox("Select Country:", list(leagues_dict_women.keys()), key="country_women")
     selected_league_women = st.selectbox("Select League:", leagues_dict_women[selected_country_women], key="league_women")
-    if st.button("Get Ratings", key="fetch_button_women"):
+    
+    # Auto-fetch data when league changes
+    current_league_key = f"{selected_country_women}_{selected_league_women}_women"
+    if st.session_state.get('current_league') != current_league_key:
+        st.session_state['current_league'] = current_league_key
         with st.spinner(random.choice(spinner_messages)):
             home_table, away_table, league_table = fetch_table_data(selected_country_women, selected_league_women)
             if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
@@ -636,4 +644,4 @@ if st.session_state.get('data_fetched', False):
             display_last_matches(f"{away_team_name} (Away)", "away_matches")
 
 else:
-    st.info("Please click 'Get Ratings' in the sidebar to begin.")
+    st.info("Please select a country and league in the sidebar to begin.")
