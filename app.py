@@ -396,77 +396,43 @@ st.markdown("""
 st.markdown('<div class="header">⚽ Elo Ratings Odds Calculator</div>', unsafe_allow_html=True)
 with st.sidebar.expander("How to Use This App", expanded=True):
     st.write("1. **Select Gender, Country and League**.")
-    st.write("2. **Ratings load automatically** when league is selected.")
+    st.write("2. **Click 'Get Ratings'** to load data.")
     st.write("3. **Select Teams** for analysis.")
-    st.write("4. **Team data fetches automatically** when teams are chosen.")
+    st.write("4. Data is fetched automatically.")
 st.sidebar.header("⚽ Select Match Details")
 
 # --- Tabbed Interface ---
 tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
 
-# Initialize session state for tracking
-if 'fetching_data' not in st.session_state:
-    st.session_state['fetching_data'] = False
-
 with tab1:
     selected_country_men = st.selectbox("Select Country:", list(leagues_dict_men.keys()), key="country_men")
     selected_league_men = st.selectbox("Select League:", leagues_dict_men[selected_country_men], key="league_men")
-    
-    # Auto-fetch data when league changes
-    current_league_key = f"{selected_country_men}_{selected_league_men}_men"
-    if (st.session_state.get('current_league') != current_league_key and 
-        not st.session_state.get('fetching_data', False)):
-        
-        st.session_state['current_league'] = current_league_key
-        st.session_state['fetching_data'] = True
-        
+    if st.button("Get Ratings", key="fetch_button_men"):
         with st.spinner(random.choice(spinner_messages)):
             home_table, away_table, league_table = fetch_table_data(selected_country_men, selected_league_men)
             if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
-                st.session_state.update({
-                    "home_table": home_table, 
-                    "away_table": away_table, 
-                    "league_table": league_table, 
-                    "data_fetched": True, 
-                    "gender": "men",
-                    "fetching_data": False
-                })
+                st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True, "gender": "men"})
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
                 st.rerun()
             else:
                 st.error("Error fetching data. Source may be unavailable or structure changed.")
-                st.session_state.update({"data_fetched": False, "fetching_data": False})
+                st.session_state['data_fetched'] = False
 
 with tab2:
     selected_country_women = st.selectbox("Select Country:", list(leagues_dict_women.keys()), key="country_women")
     selected_league_women = st.selectbox("Select League:", leagues_dict_women[selected_country_women], key="league_women")
-    
-    # Auto-fetch data when league changes
-    current_league_key = f"{selected_country_women}_{selected_league_women}_women"
-    if (st.session_state.get('current_league') != current_league_key and 
-        not st.session_state.get('fetching_data', False)):
-        
-        st.session_state['current_league'] = current_league_key
-        st.session_state['fetching_data'] = True
-        
+    if st.button("Get Ratings", key="fetch_button_women"):
         with st.spinner(random.choice(spinner_messages)):
             home_table, away_table, league_table = fetch_table_data(selected_country_women, selected_league_women)
             if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
-                st.session_state.update({
-                    "home_table": home_table, 
-                    "away_table": away_table, 
-                    "league_table": league_table, 
-                    "data_fetched": True, 
-                    "gender": "women",
-                    "fetching_data": False
-                })
+                st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True, "gender": "women"})
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
                 st.rerun()
             else:
                 st.error("Error fetching data. Source may be unavailable or structure changed.")
-                st.session_state.update({"data_fetched": False, "fetching_data": False})
+                st.session_state['data_fetched'] = False
 
 
 if st.session_state.get('data_fetched', False):
@@ -670,4 +636,4 @@ if st.session_state.get('data_fetched', False):
             display_last_matches(f"{away_team_name} (Away)", "away_matches")
 
 else:
-    st.info("Please select a country and league in the sidebar to begin.")
+    st.info("Please click 'Get Ratings' in the sidebar to begin.")
