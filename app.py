@@ -404,24 +404,39 @@ st.sidebar.header("⚽ Select Match Details")
 # --- Tabbed Interface ---
 tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
 
+# Initialize session state for tracking
+if 'fetching_data' not in st.session_state:
+    st.session_state['fetching_data'] = False
+
 with tab1:
     selected_country_men = st.selectbox("Select Country:", list(leagues_dict_men.keys()), key="country_men")
     selected_league_men = st.selectbox("Select League:", leagues_dict_men[selected_country_men], key="league_men")
     
     # Auto-fetch data when league changes
     current_league_key = f"{selected_country_men}_{selected_league_men}_men"
-    if st.session_state.get('current_league') != current_league_key:
+    if (st.session_state.get('current_league') != current_league_key and 
+        not st.session_state.get('fetching_data', False)):
+        
         st.session_state['current_league'] = current_league_key
+        st.session_state['fetching_data'] = True
+        
         with st.spinner(random.choice(spinner_messages)):
             home_table, away_table, league_table = fetch_table_data(selected_country_men, selected_league_men)
             if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
-                st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True, "gender": "men"})
+                st.session_state.update({
+                    "home_table": home_table, 
+                    "away_table": away_table, 
+                    "league_table": league_table, 
+                    "data_fetched": True, 
+                    "gender": "men",
+                    "fetching_data": False
+                })
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
                 st.rerun()
             else:
                 st.error("Error fetching data. Source may be unavailable or structure changed.")
-                st.session_state['data_fetched'] = False
+                st.session_state.update({"data_fetched": False, "fetching_data": False})
 
 with tab2:
     selected_country_women = st.selectbox("Select Country:", list(leagues_dict_women.keys()), key="country_women")
@@ -429,18 +444,29 @@ with tab2:
     
     # Auto-fetch data when league changes
     current_league_key = f"{selected_country_women}_{selected_league_women}_women"
-    if st.session_state.get('current_league') != current_league_key:
+    if (st.session_state.get('current_league') != current_league_key and 
+        not st.session_state.get('fetching_data', False)):
+        
         st.session_state['current_league'] = current_league_key
+        st.session_state['fetching_data'] = True
+        
         with st.spinner(random.choice(spinner_messages)):
             home_table, away_table, league_table = fetch_table_data(selected_country_women, selected_league_women)
             if isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame):
-                st.session_state.update({"home_table": home_table, "away_table": away_table, "league_table": league_table, "data_fetched": True, "gender": "women"})
+                st.session_state.update({
+                    "home_table": home_table, 
+                    "away_table": away_table, 
+                    "league_table": league_table, 
+                    "data_fetched": True, 
+                    "gender": "women",
+                    "fetching_data": False
+                })
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
                 st.rerun()
             else:
                 st.error("Error fetching data. Source may be unavailable or structure changed.")
-                st.session_state['data_fetched'] = False
+                st.session_state.update({"data_fetched": False, "fetching_data": False})
 
 
 if st.session_state.get('data_fetched', False):
