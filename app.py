@@ -409,7 +409,7 @@ def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
     """
     # Calculate rating difference with home advantage
     home_advantage = 65  # Elo points advantage for playing at home
-    adjusted_rating_diff = (home_rating + home_advantage) - away_rating
+    adjusted_rating_diff = home_rating - away_rating
     
     # Calculate basic win probability using Elo formula (without draw consideration)
     p_home_vs_away = 1 / (1 + 10**(-adjusted_rating_diff / 400))
