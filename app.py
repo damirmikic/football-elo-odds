@@ -464,15 +464,12 @@ def fetch_data_for_selection(country, league, gender):
     """Helper function to fetch data for a given selection"""
     current_selection = f"{country}_{league}_{gender}"
     
-    # Only fetch if selection actually changed or no data exists
     if (st.session_state.get('current_selection') != current_selection or 
         not st.session_state.get('data_fetched', False)):
         
         st.session_state['current_selection'] = current_selection
         
-        # Show loading message
         with st.spinner(random.choice(spinner_messages)):
-            # Fetch data
             home_table, away_table, league_table = fetch_table_data(country, league)
             
             if (isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame) and
@@ -487,7 +484,6 @@ def fetch_data_for_selection(country, league, gender):
                     "gender": gender
                 })
                 
-                # Clear team-specific data when league changes
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 
                            'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
@@ -497,19 +493,50 @@ def fetch_data_for_selection(country, league, gender):
                 st.session_state['data_fetched'] = False
                 st.error(f"❌ Failed to load data for {country} - {league}")
 
-def on_league_change():
-    """Callback function triggered when league selection changes"""
-    # Determine which tab is active and get the selection
-    if 'country_men' in st.session_state and 'league_men' in st.session_state:
-        country = st.session_state.country_men
-        league = st.session_state.league_men
-        gender = 'men'
-        fetch_data_for_selection(country, league, gender)
-    elif 'country_women' in st.session_state and 'league_women' in st.session_state:
-        country = st.session_state.country_women
-        league = st.session_state.league_women
-        gender = 'women'
-        fetch_data_for_selection(country, league, gender)
+# CORRECTED: Create two separate callback functions
+def on_men_league_change():
+    """Callback for Men's league selection changes"""
+    country = st.session_state.country_men
+    league = st.session_state.league_men
+    fetch_data_for_selection(country, league, 'men')
+
+def on_women_league_change():
+    """Callback for Women's league selection changes"""
+    country = st.session_state.country_women
+    league = st.session_state.league_women
+    fetch_data_for_selection(country, league, 'women')
+
+
+# --- Tabbed Interface ---
+tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
+
+with tab1:
+    selected_country_men = st.selectbox(
+        "Select Country:", 
+        list(leagues_dict_men.keys()), 
+        key="country_men",
+        on_change=on_men_league_change # Use the specific men's callback
+    )
+    selected_league_men = st.selectbox(
+        "Select League:", 
+        leagues_dict_men[selected_country_men], 
+        key="league_men",
+        on_change=on_men_league_change # Use the specific men's callback
+    )
+
+with tab2:
+    selected_country_women = st.selectbox(
+        "Select Country:", 
+        list(leagues_dict_women.keys()), 
+        key="country_women",
+        on_change=on_women_league_change # Use the specific women's callback
+    )
+    selected_league_women = st.selectbox(
+        "Select League:", 
+        leagues_dict_women[selected_country_women], 
+        key="league_women",
+        on_change=on_women_league_change # Use the specific women's callback
+    )
 
 # --- Tabbed Interface ---
 tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
