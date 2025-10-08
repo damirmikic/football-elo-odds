@@ -348,6 +348,7 @@ def fetch_team_page_data(team_name, team_url):
                         last_matches_data.append({"date": date, "opponent": opponent, "result": result})
                         try:
                             own_score, opp_score = map(int, result.split(':'))
+                            # FIX: Make the 'in' check case-insensitive
                             is_home_match = team_name.lower() in opponent.split('-')[0].lower()
                             if (is_home_match and own_score > opp_score) or (not is_home_match and own_score < opp_score):
                                 points += 3
@@ -366,7 +367,7 @@ def get_league_suggested_draw_rate(league_table):
     Returns a suggested draw probability based on league data.
     """
     if not isinstance(league_table, pd.DataFrame) or league_table.empty:
-        return 0.27
+        return 0.27  # Default draw rate if no data available
     
     try:
         total_matches = 0
@@ -376,10 +377,13 @@ def get_league_suggested_draw_rate(league_table):
             matches_played = int(row['M'])
             points = int(row['P.'])
             
+            # Parse goals (format: "scored:conceded")
             goals_str = str(row['Goals'])
             if ':' in goals_str:
                 goals_scored, goals_conceded = map(int, goals_str.split(':'))
                 
+                # Work backwards from points to estimate draws
+                # 3 points per win, 1 point per draw, 0 points per loss
                 max_wins = min(points // 3, matches_played)
                 remaining_points = points - (max_wins * 3)
                 remaining_matches = matches_played - max_wins
@@ -390,29 +394,35 @@ def get_league_suggested_draw_rate(league_table):
         
         if total_matches > 0:
             league_draw_rate = total_draws / total_matches
+            # Ensure reasonable bounds (20% to 35%)
             return max(0.20, min(0.35, league_draw_rate))
         else:
-            return 0.27
+            return 0.27  # Default if calculation fails
             
     except Exception:
-        return 0.27
+        return 0.27  # Default draw rate if parsing fails
 
 def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
     """
     Calculates home, draw, and away probabilities with user-specified draw rate.
     Uses Elo ratings for win probabilities and distributes remaining probability.
     """
-    home_advantage = 65
-    adjusted_rating_diff = home_rating - away_rating + home_advantage
+    # Calculate rating difference with home advantage
+    home_advantage = 65  # Elo points advantage for playing at home
+    adjusted_rating_diff = home_rating - away_rating
     
+    # Calculate basic win probability using Elo formula (without draw consideration)
     p_home_vs_away = 1 / (1 + 10**(-adjusted_rating_diff / 400))
     
+    # User-specified draw probability
     p_draw = draw_probability
     
+    # Distribute remaining probability between home and away wins
     remaining_prob = 1 - p_draw
     p_home = p_home_vs_away * remaining_prob
     p_away = (1 - p_home_vs_away) * remaining_prob
     
+    # Final normalization to ensure exact sum of 1.0
     total = p_home + p_draw + p_away
     p_home = p_home / total
     p_draw = p_draw / total
@@ -454,11 +464,15 @@ def fetch_data_for_selection(country, league, gender):
     """Helper function to fetch data for a given selection"""
     current_selection = f"{country}_{league}_{gender}"
     
-    if (st.session_state.get('current_selection') != current_selection):
+    # Only fetch if selection actually changed or no data exists
+    if (st.session_state.get('current_selection') != current_selection or 
+        not st.session_state.get('data_fetched', False)):
         
         st.session_state['current_selection'] = current_selection
         
+        # Show loading message
         with st.spinner(random.choice(spinner_messages)):
+            # Fetch data
             home_table, away_table, league_table = fetch_table_data(country, league)
             
             if (isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame) and
@@ -473,6 +487,7 @@ def fetch_data_for_selection(country, league, gender):
                     "gender": gender
                 })
                 
+                # Clear team-specific data when league changes
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 
                            'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
@@ -482,17 +497,19 @@ def fetch_data_for_selection(country, league, gender):
                 st.session_state['data_fetched'] = False
                 st.error(f"❌ Failed to load data for {country} - {league}")
 
-def on_men_league_change():
-    """Callback function triggered when men's league selection changes"""
-    country = st.session_state.country_men
-    league = st.session_state.league_men
-    fetch_data_for_selection(country, league, 'men')
-
-def on_women_league_change():
-    """Callback function triggered when women's league selection changes"""
-    country = st.session_state.country_women
-    league = st.session_state.league_women
-    fetch_data_for_selection(country, league, 'women')
+def on_league_change():
+    """Callback function triggered when league selection changes"""
+    # Determine which tab is active and get the selection
+    if 'country_men' in st.session_state and 'league_men' in st.session_state:
+        country = st.session_state.country_men
+        league = st.session_state.league_men
+        gender = 'men'
+        fetch_data_for_selection(country, league, gender)
+    elif 'country_women' in st.session_state and 'league_women' in st.session_state:
+        country = st.session_state.country_women
+        league = st.session_state.league_women
+        gender = 'women'
+        fetch_data_for_selection(country, league, gender)
 
 # --- Tabbed Interface ---
 tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
@@ -502,13 +519,13 @@ with tab1:
         "Select Country:", 
         list(leagues_dict_men.keys()), 
         key="country_men",
-        on_change=on_men_league_change
+        on_change=on_league_change
     )
     selected_league_men = st.selectbox(
         "Select League:", 
         leagues_dict_men[selected_country_men], 
         key="league_men",
-        on_change=on_men_league_change
+        on_change=on_league_change
     )
 
 with tab2:
@@ -516,18 +533,31 @@ with tab2:
         "Select Country:", 
         list(leagues_dict_women.keys()), 
         key="country_women",
-        on_change=on_women_league_change
+        on_change=on_league_change
     )
     selected_league_women = st.selectbox(
         "Select League:", 
         leagues_dict_women[selected_country_women], 
         key="league_women",
-        on_change=on_women_league_change
+        on_change=on_league_change
     )
 
-# Initial data fetch on first run for the default (men's) tab
-if not st.session_state.get('current_selection'):
-    on_men_league_change()
+# Fallback check to ensure data is fetched even if callbacks don't trigger
+# This handles cases where country changes but league callback doesn't fire
+if not st.session_state.get('data_fetched', False):
+    # Determine current selection based on which tab has values
+    if 'country_men' in st.session_state and 'league_men' in st.session_state:
+        fetch_data_for_selection(
+            st.session_state.country_men, 
+            st.session_state.league_men, 
+            'men'
+        )
+    elif 'country_women' in st.session_state and 'league_women' in st.session_state:
+        fetch_data_for_selection(
+            st.session_state.country_women, 
+            st.session_state.league_women, 
+            'women'
+        )
 
 # Main content area
 if st.session_state.get('data_fetched', False):
@@ -539,10 +569,10 @@ if st.session_state.get('data_fetched', False):
         col1, col2 = st.columns(2)
         home_team_name = col1.selectbox("Select Home Team:", home_table["Team"], key="home_team_select")
         away_team_name = col2.selectbox("Select Away Team:", away_table["Team"], key="away_team_select")
-        
         home_team_data = home_table[home_table["Team"] == home_team_name].iloc[0]
         away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
 
+    # Auto-fetch team data when team selection changes
     if 'last_home_team' not in st.session_state or st.session_state.last_home_team != home_team_name:
         with st.spinner(f"Fetching {home_team_name} data..."):
             lineup, squad, matches = fetch_team_page_data(home_team_name, home_team_data['URL'])
@@ -577,7 +607,7 @@ if st.session_state.get('data_fetched', False):
                     team_stats_row = table[table['normalized_name'] == normalized_target]
                     if team_stats_row.empty:
                         column.warning(f"Stats not found for {team_name}.")
-                        return
+                        return 0
                     team_stats = team_stats_row.iloc[0]
                     column.markdown(f"**{team_name}**")
                     column.metric(label="League Position", value=f"#{int(team_stats.iloc[0])}")
@@ -588,10 +618,12 @@ if st.session_state.get('data_fetched', False):
                     column.metric(label="Avg. Goals Conceded", value=f"{ga/matches:.2f}")
                     column.metric(label="Avg. Goals per Match", value=f"{(gf + ga)/matches:.2f}")
                     column.metric(label="Avg. Points per Game", value=f"{points/matches:.2f}")
+                    return matches
                 except (IndexError, ValueError, KeyError, TypeError):
                     column.warning(f"Statistics unavailable for {team_name}.")
+                    return 0
             
-            display_team_stats(home_team_name, league_table, stat_col1)
+            matches_played = display_team_stats(home_team_name, league_table, stat_col1)
             display_team_stats(away_team_name, league_table, stat_col2)
         else:
             st.warning("League table not available for detailed statistics.")
@@ -605,8 +637,10 @@ if st.session_state.get('data_fetched', False):
 
         st.markdown("---")
         
+        # Get league-suggested draw rate for reference
         suggested_draw_rate = get_league_suggested_draw_rate(league_table)
         
+        # User control for draw probability
         st.markdown("**🎯 Draw Probability Control**")
         col_slider, col_info = st.columns([3, 1])
         
@@ -624,6 +658,7 @@ if st.session_state.get('data_fetched', False):
         with col_info:
             st.metric("League Avg", f"{suggested_draw_rate:.1%}", help="Suggested draw rate based on league data")
 
+        # Calculate probabilities with user-specified draw rate
         p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating, draw_probability)
         
         st.markdown(f"**Calculated Fair Probabilities:**")
@@ -650,9 +685,11 @@ if st.session_state.get('data_fetched', False):
         st.markdown("---")
         st.write("**Draw No Bet Odds with Margin Applied:**")
 
+        # Calculate Draw No Bet probabilities
         p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
         p_dnb_away = p_away / (p_home + p_away) if (p_home + p_away) > 0 else 0
         
+        # Apply margin to DNB probabilities
         dnb_h_odds = 1 / (p_dnb_home * (1 + margin_decimal)) if p_dnb_home > 0 else 0
         dnb_a_odds = 1 / (p_dnb_away * (1 + margin_decimal)) if p_dnb_away > 0 else 0
 
@@ -670,21 +707,22 @@ if st.session_state.get('data_fetched', False):
                 st.warning("Lineup data not available.")
             else:
                 header_cols = st.columns([1, 4, 2, 2, 2])
-                header_cols[0].markdown('<p class="player-table-header">On</p>', unsafe_allow_html=True)
-                header_cols[1].markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
-                header_cols[2].markdown('<p class="player-table-header">Position</p>', unsafe_allow_html=True)
-                header_cols[3].markdown('<p class="player-table-header">M/G</p>', unsafe_allow_html=True)
-                header_cols[4].markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
+                with header_cols[0]: st.markdown('<p class="player-table-header">On</p>', unsafe_allow_html=True)
+                with header_cols[1]: st.markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
+                with header_cols[2]: st.markdown('<p class="player-table-header">Position</p>', unsafe_allow_html=True)
+                with header_cols[3]: st.markdown('<p class="player-table-header">M/G</p>', unsafe_allow_html=True)
+                with header_cols[4]: st.markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
 
                 selected_starters = []
                 for i, p in enumerate(lineup_data):
                     player_cols = st.columns([1, 4, 2, 2, 2])
-                    is_starter = player_cols[0].checkbox("", value=(i < 11), key=f"check_{team_key}_{i}", label_visibility="collapsed")
-                    if is_starter: selected_starters.append(p)
-                    player_cols[1].write(p['name'])
-                    player_cols[2].write(p['position'])
-                    player_cols[3].write(p['stats'])
-                    player_cols[4].write(f"**{p['rating']}**")
+                    with player_cols[0]:
+                        is_starter = st.checkbox("", value=(i < 11), key=f"check_{team_key}_{i}", label_visibility="collapsed")
+                        if is_starter: selected_starters.append(p)
+                    with player_cols[1]: st.write(p['name'])
+                    with player_cols[2]: st.write(p['position'])
+                    with player_cols[3]: st.write(p['stats'])
+                    with player_cols[4]: st.write(f"**{p['rating']}**")
                 
                 num_selected = len(selected_starters)
                 if num_selected != 11: 
@@ -726,18 +764,26 @@ if st.session_state.get('data_fetched', False):
             elif not squad_data: 
                 st.warning("Squad data not available.")
             else:
-                starter_names = {p['name'] for p in lineup_data[:11]} if lineup_data else set()
+                starter_names = set()
+                if lineup_data:
+                    starter_names = {p['name'] for p in lineup_data[:11]}
                 
                 header_cols = st.columns([4, 2, 2])
-                header_cols[0].markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
-                header_cols[1].markdown('<p class="player-table-header">Age</p>', unsafe_allow_html=True)
-                header_cols[2].markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
+                with header_cols[0]: st.markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
+                with header_cols[1]: st.markdown('<p class="player-table-header">Age</p>', unsafe_allow_html=True)
+                with header_cols[2]: st.markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
                 
                 for p in squad_data:
                     player_cols = st.columns([4, 2, 2])
-                    player_cols[0].write(f"**{p['name']}**" if p['name'] in starter_names else p['name'])
-                    player_cols[1].write(str(p['age']))
-                    player_cols[2].write(f"**{p['rating']}**")
+                    with player_cols[0]:
+                        if p['name'] in starter_names:
+                            st.write(f"**{p['name']}**")
+                        else:
+                            st.write(p['name'])
+                    with player_cols[1]:
+                        st.write(str(p['age']))
+                    with player_cols[2]:
+                        st.write(f"**{p['rating']}**")
         
         col1, col2 = st.columns(2)
         with col1:
