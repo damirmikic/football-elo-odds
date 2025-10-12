@@ -165,6 +165,11 @@ leagues_data = {
     }
 }
 
+# Combine Men's and Women's league data into a single dictionary
+all_leagues = {**leagues_data["Men's"], **leagues_data["Women's"]}
+# Sort the combined list of countries/leagues alphabetically
+sorted_countries = sorted(all_leagues.keys())
+
 
 spinner_messages = [
     "Fetching the latest football ratings...",
@@ -447,8 +452,8 @@ st.markdown("""
 st.markdown('<div class="header">⚽ Elo Ratings Odds Calculator</div>', unsafe_allow_html=True)
 
 with st.sidebar.expander("How to Use This App", expanded=True):
-    st.write("1. **Select Gender, Country and League**.")
-    st.write("2. **Ratings load automatically** when league is selected.")
+    st.write("1. **Select the League Type and League**.")
+    st.write("2. **Ratings load automatically** when a league is selected.")
     st.write("3. **Select Teams** for analysis.")
     st.write("4. **Team data fetches automatically** when teams are chosen.")
 
@@ -459,25 +464,21 @@ if 'data_fetched' not in st.session_state:
     st.session_state['data_fetched'] = False
 if 'current_selection' not in st.session_state:
     st.session_state['current_selection'] = None
+if 'first_run' not in st.session_state:
+    st.session_state['first_run'] = True
 
 # Callback functions for automatic data fetching
-def fetch_data_for_selection(country, league, gender):
+def fetch_data_for_selection(country, league):
     """Helper function to fetch data for a given selection"""
-    current_selection = f"{country}_{league}_{gender}"
+    current_selection = f"{country}_{league}"
     
-    # Only fetch if selection actually changed or no data exists
     if (st.session_state.get('current_selection') != current_selection or 
         not st.session_state.get('data_fetched', False)):
         
         st.session_state['current_selection'] = current_selection
         
-        # FIX: Correctly format the country name for the URL for women's leagues
-        url_country = country.replace("-Women", "") if "Women" in gender else country
-        
-        # Show loading message
         with st.spinner(random.choice(spinner_messages)):
-            # Fetch data
-            home_table, away_table, league_table = fetch_table_data(url_country, league)
+            home_table, away_table, league_table = fetch_table_data(country, league)
             
             if (isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame) and
                 not home_table.empty and not away_table.empty and
@@ -487,50 +488,44 @@ def fetch_data_for_selection(country, league, gender):
                     "home_table": home_table, 
                     "away_table": away_table, 
                     "league_table": league_table, 
-                    "data_fetched": True, 
-                    "gender": gender
+                    "data_fetched": True
                 })
                 
-                # Clear team-specific data when league changes
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 
                            'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
                 
-                st.success(f"✅ Loaded {gender} {country} - {league}")
+                st.success(f"✅ Loaded {country} - {league}")
             else:
                 st.session_state['data_fetched'] = False
                 st.error(f"❌ Failed to load data for {country} - {league}")
 
 def on_selection_change():
     """Callback for any selection change."""
-    gender = st.session_state.gender_select
     country = st.session_state.country_select
     league = st.session_state.league_select
-    fetch_data_for_selection(country, league, gender)
+    fetch_data_for_selection(country, league)
 
 # --- Unified Sidebar Interface ---
-selected_gender = st.sidebar.radio(
-    "Select Gender:",
-    list(leagues_data.keys()),
-    key="gender_select",
-    on_change=on_selection_change
-)
-
-country_list = list(leagues_data[selected_gender].keys())
 selected_country = st.sidebar.selectbox(
-    "Select Country:",
-    country_list,
+    "Select Country/League Type:",
+    sorted_countries,
     key="country_select",
     on_change=on_selection_change
 )
 
-league_list = leagues_data[selected_gender][selected_country]
+league_list = all_leagues[selected_country]
 selected_league = st.sidebar.selectbox(
     "Select League:",
     league_list,
     key="league_select",
     on_change=on_selection_change
 )
+
+# Trigger initial data fetch on the first run
+if st.session_state.first_run:
+    on_selection_change()
+    st.session_state.first_run = False
 
 
 # Main content area
