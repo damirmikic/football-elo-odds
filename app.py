@@ -11,159 +11,160 @@ import re
 # Set page title and icon
 st.set_page_config(page_title="Elo Ratings Odds Calculator", page_icon="odds_icon.png")
 
-# Dictionary of countries and leagues for Men
-leagues_dict_men = {
-    "England": ["UK1", "UK2", "UK3", "UK4", "UK5", "UK6N", "UK6S", "UK7N"],
-    "Germany": ["DE1", "DE2", "DE3", "DE4SW", "DE4W", "DE4N", "DE4NO", "DE4B"],
-    "Italy": ["IT1", "IT2", "IT3C", "IT3B", "IT3A"],
-    "Spain": ["ES1", "ES2", "ES3G1", "ES3G2", "ES3G3", "ES3G4", "ES3G5"],
-    "France": ["FR1", "FR2", "FR3"],
-    "Sweden": ["SW1", "SW2", "SW3S", "SW3N"],
-    "Netherlands": ["NL1", "NL2", "NL3"],
-    "Russia": ["RU1", "RU2"],
-    "Portugal": ["PT1", "PT2"],
-    "Austria": ["AT1", "AT2", "AT3O", "AT3T", "AT3M", "AT3W", "AT3V"],
-    "Denmark": ["DK1", "DK2", "DK3G1", "DK3G2"],
-    "Greece": ["GR1", "GR2"],
-    "Norway": ["NO1", "NO2", "NO3G1", "NO3G2"],
-    "Czech Republic": ["CZ1", "CZ2"],
-    "Turkey": ["TU1", "TU2", "TU3B", "TU3K"],
-    "Belgium": ["BE1", "BE2"],
-    "Scotland": ["SC1", "SC2", "SC3", "SC4"],
-    "Switzerland": ["CH1", "CH2"],
-    "Finland": ["FI1", "FI2", "FI3A", "FI3B", "FI3C"],
-    "Ukraine": ["UA1", "UA2"],
-    "Romania": ["RO1", "RO2"],
-    "Poland": ["PL1", "PL2", "PL3"],
-    "Croatia": ["HR1", "HR2"],
-    "Belarus": ["BY1", "BY2"],
-    "Israel": ["IL1", "IL2"],
-    "Iceland": ["IS1", "IS2", "IS3", "IS4"],
-    "Cyprus": ["CY1", "CY2"],
-    "Serbia": ["CS1", "CS2"],
-    "Bulgaria": ["BG1", "BG2"],
-    "Slovakia": ["SK1", "SK2"],
-    "Hungary": ["HU1", "HU2"],
-    "Kazakhstan": ["KZ1", "KZ2"],
-    "Bosnia-Herzegovina": ["BA1"],
-    "Slovenia": ["SI1", "SI2"],
-    "Azerbaijan": ["AZ1"],
-    "Ireland": ["IR1", "IR2"],
-    "Latvia": ["LA1", "LA2"],
-    "Georgia": ["GE1", "GE2"],
-    "Kosovo": ["XK1"],
-    "Albania": ["AL1"],
-    "Lithuania": ["LT1", "LT2"],
-    "North-Macedonia": ["MK1"],
-    "Armenia": ["AM1"],
-    "Estonia": ["EE1", "EE2"],
-    "Northern-Ireland": ["NI1", "NI2"],
-    "Malta": ["MT1"],
-    "Luxembourg": ["LU1"],
-    "Wales": ["WL1"],
-    "Montenegro": ["MN1"],
-    "Moldova": ["MD1"],
-    "Färöer": ["FA1"],
-    "Gibraltar": ["GI1"],
-    "Andorra": ["AD1"],
-    "San-Marino": ["SM1"],
-    "Brazil": ["BR1", "BR2", "BR3", "BRC", "BRGA"],
-    "Mexico": ["MX1", "MX2"],
-    "Argentina": ["AR1", "AR2", "AR3F", "AR5", "AR3", "AR4"],
-    "USA": ["US1", "US2", "US3"],
-    "Colombia": ["CO1", "CO2"],
-    "Ecuador": ["EC1", "EC2"],
-    "Paraguay": ["PY1", "PY2"],
-    "Chile": ["CL1", "CL2"],
-    "Uruguay": ["UY1", "UY2"],
-    "Costa-Rica": ["CR1", "CR2"],
-    "Bolivia": ["BO1"],
-    "Guatemala": ["GT1", "GT2"],
-    "Dominican-Rep.": ["DO1"],
-    "Honduras": ["HN1"],
-    "Venezuela": ["VE1"],
-    "Peru": ["PE1", "PE2"],
-    "Panama": ["PA1"],
-    "El-Salvador": ["SV1"],
-    "Jamaica": ["JM1"],
-    "Nicaragua": ["NC1"],
-    "Canada": ["CA1"],
-    "Haiti": ["HT1"],
-    "Japan": ["JP1", "JP2", "JP3"],
-    "South-Korea": ["KR1", "KR2", "KR3"],
-    "China": ["CN1", "CN2", "CN3"],
-    "Iran": ["IA1", "IA2"],
-    "Australia": ["AU1", "AU2V", "AU2NSW", "AU2Q", "AU2S", "AU2W", "AU3V", "AU3NSW", "AU2T", "AU2NOR", "AU3Q", "AU2CAP", "AU3S"],
-    "Saudi-Arabia": ["SA1", "SA2"],
-    "Thailand": ["TH1", "TH2"],
-    "Qatar": ["QA1", "QA2"],
-    "United Arab Emirates": ["AE1", "AE2"],
-    "Indonesia": ["ID1", "ID2"],
-    "Jordan": ["JO1"],
-    "Syria": ["SY1"],
-    "Uzbekistan": ["UZ1"],
-    "Malaysia": ["MY1", "MY2"],
-    "Vietnam": ["VN1", "VN2"],
-    "Iraq": ["IQ1"],
-    "Kuwait": ["KW1"],
-    "Bahrain": ["BH1"],
-    "Myanmar": ["MM1"],
-    "Palestine": ["PS1"],
-    "India": ["IN1", "IN2"],
-    "New Zealand": ["NZ1"],
-    "Hong Kong": ["HK1", "HK2"],
-    "Oman": ["OM1"],
-    "Taiwan": ["TW1"],
-    "Tajikistan": ["TJ1"],
-    "Turkmenistan": ["TM1"],
-    "Lebanon": ["LB1"],
-    "Bangladesh": ["BD1"],
-    "Singapore": ["SG1"],
-    "Cambodia": ["KH1"],
-    "Kyrgyzstan": ["KG1"],
-    "Egypt": ["EG1", "EG2"],
-    "Algeria": ["DZ1", "DZ2"],
-    "Tunisia": ["TN1", "TN2"],
-    "Morocco": ["MA1", "MA2"],
-    "South-Africa": ["ZA1", "ZA2"],
-    "Kenya": ["KE1", "KE2"],
-    "Zambia": ["ZM1"],
-    "Ghana": ["GH1"],
-    "Nigeria": ["NG1"],
-    "Uganda": ["UG1"],
-    "Burundi": ["BI1"],
-    "Rwanda": ["RW1"],
-    "Cameroon": ["CM1"],
-    "Tanzania": ["TZ1"],
-    "Gambia": ["GM1"],
-    "Sudan": ["SD1"]
+# Combined dictionary for both Men's and Women's leagues
+leagues_data = {
+    "Men's": {
+        "England": ["UK1", "UK2", "UK3", "UK4", "UK5", "UK6N", "UK6S", "UK7N"],
+        "Germany": ["DE1", "DE2", "DE3", "DE4SW", "DE4W", "DE4N", "DE4NO", "DE4B"],
+        "Italy": ["IT1", "IT2", "IT3C", "IT3B", "IT3A"],
+        "Spain": ["ES1", "ES2", "ES3G1", "ES3G2", "ES3G3", "ES3G4", "ES3G5"],
+        "France": ["FR1", "FR2", "FR3"],
+        "Sweden": ["SW1", "SW2", "SW3S", "SW3N"],
+        "Netherlands": ["NL1", "NL2", "NL3"],
+        "Russia": ["RU1", "RU2"],
+        "Portugal": ["PT1", "PT2"],
+        "Austria": ["AT1", "AT2", "AT3O", "AT3T", "AT3M", "AT3W", "AT3V"],
+        "Denmark": ["DK1", "DK2", "DK3G1", "DK3G2"],
+        "Greece": ["GR1", "GR2"],
+        "Norway": ["NO1", "NO2", "NO3G1", "NO3G2"],
+        "Czech Republic": ["CZ1", "CZ2"],
+        "Turkey": ["TU1", "TU2", "TU3B", "TU3K"],
+        "Belgium": ["BE1", "BE2"],
+        "Scotland": ["SC1", "SC2", "SC3", "SC4"],
+        "Switzerland": ["CH1", "CH2"],
+        "Finland": ["FI1", "FI2", "FI3A", "FI3B", "FI3C"],
+        "Ukraine": ["UA1", "UA2"],
+        "Romania": ["RO1", "RO2"],
+        "Poland": ["PL1", "PL2", "PL3"],
+        "Croatia": ["HR1", "HR2"],
+        "Belarus": ["BY1", "BY2"],
+        "Israel": ["IL1", "IL2"],
+        "Iceland": ["IS1", "IS2", "IS3", "IS4"],
+        "Cyprus": ["CY1", "CY2"],
+        "Serbia": ["CS1", "CS2"],
+        "Bulgaria": ["BG1", "BG2"],
+        "Slovakia": ["SK1", "SK2"],
+        "Hungary": ["HU1", "HU2"],
+        "Kazakhstan": ["KZ1", "KZ2"],
+        "Bosnia-Herzegovina": ["BA1"],
+        "Slovenia": ["SI1", "SI2"],
+        "Azerbaijan": ["AZ1"],
+        "Ireland": ["IR1", "IR2"],
+        "Latvia": ["LA1", "LA2"],
+        "Georgia": ["GE1", "GE2"],
+        "Kosovo": ["XK1"],
+        "Albania": ["AL1"],
+        "Lithuania": ["LT1", "LT2"],
+        "North-Macedonia": ["MK1"],
+        "Armenia": ["AM1"],
+        "Estonia": ["EE1", "EE2"],
+        "Northern-Ireland": ["NI1", "NI2"],
+        "Malta": ["MT1"],
+        "Luxembourg": ["LU1"],
+        "Wales": ["WL1"],
+        "Montenegro": ["MN1"],
+        "Moldova": ["MD1"],
+        "Färöer": ["FA1"],
+        "Gibraltar": ["GI1"],
+        "Andorra": ["AD1"],
+        "San-Marino": ["SM1"],
+        "Brazil": ["BR1", "BR2", "BR3", "BRC", "BRGA"],
+        "Mexico": ["MX1", "MX2"],
+        "Argentina": ["AR1", "AR2", "AR3F", "AR5", "AR3", "AR4"],
+        "USA": ["US1", "US2", "US3"],
+        "Colombia": ["CO1", "CO2"],
+        "Ecuador": ["EC1", "EC2"],
+        "Paraguay": ["PY1", "PY2"],
+        "Chile": ["CL1", "CL2"],
+        "Uruguay": ["UY1", "UY2"],
+        "Costa-Rica": ["CR1", "CR2"],
+        "Bolivia": ["BO1"],
+        "Guatemala": ["GT1", "GT2"],
+        "Dominican-Rep.": ["DO1"],
+        "Honduras": ["HN1"],
+        "Venezuela": ["VE1"],
+        "Peru": ["PE1", "PE2"],
+        "Panama": ["PA1"],
+        "El-Salvador": ["SV1"],
+        "Jamaica": ["JM1"],
+        "Nicaragua": ["NC1"],
+        "Canada": ["CA1"],
+        "Haiti": ["HT1"],
+        "Japan": ["JP1", "JP2", "JP3"],
+        "South-Korea": ["KR1", "KR2", "KR3"],
+        "China": ["CN1", "CN2", "CN3"],
+        "Iran": ["IA1", "IA2"],
+        "Australia": ["AU1", "AU2V", "AU2NSW", "AU2Q", "AU2S", "AU2W", "AU3V", "AU3NSW", "AU2T", "AU2NOR", "AU3Q", "AU2CAP", "AU3S"],
+        "Saudi-Arabia": ["SA1", "SA2"],
+        "Thailand": ["TH1", "TH2"],
+        "Qatar": ["QA1", "QA2"],
+        "United Arab Emirates": ["AE1", "AE2"],
+        "Indonesia": ["ID1", "ID2"],
+        "Jordan": ["JO1"],
+        "Syria": ["SY1"],
+        "Uzbekistan": ["UZ1"],
+        "Malaysia": ["MY1", "MY2"],
+        "Vietnam": ["VN1", "VN2"],
+        "Iraq": ["IQ1"],
+        "Kuwait": ["KW1"],
+        "Bahrain": ["BH1"],
+        "Myanmar": ["MM1"],
+        "Palestine": ["PS1"],
+        "India": ["IN1", "IN2"],
+        "New Zealand": ["NZ1"],
+        "Hong Kong": ["HK1", "HK2"],
+        "Oman": ["OM1"],
+        "Taiwan": ["TW1"],
+        "Tajikistan": ["TJ1"],
+        "Turkmenistan": ["TM1"],
+        "Lebanon": ["LB1"],
+        "Bangladesh": ["BD1"],
+        "Singapore": ["SG1"],
+        "Cambodia": ["KH1"],
+        "Kyrgyzstan": ["KG1"],
+        "Egypt": ["EG1", "EG2"],
+        "Algeria": ["DZ1", "DZ2"],
+        "Tunisia": ["TN1", "TN2"],
+        "Morocco": ["MA1", "MA2"],
+        "South-Africa": ["ZA1", "ZA2"],
+        "Kenya": ["KE1", "KE2"],
+        "Zambia": ["ZM1"],
+        "Ghana": ["GH1"],
+        "Nigeria": ["NG1"],
+        "Uganda": ["UG1"],
+        "Burundi": ["BI1"],
+        "Rwanda": ["RW1"],
+        "Cameroon": ["CM1"],
+        "Tanzania": ["TZ1"],
+        "Gambia": ["GM1"],
+        "Sudan": ["SD1"]
+    },
+    "Women's": {
+        "England-Women": ["UW1", "UW2"],
+        "Spain-Women": ["EW1", "EW2"],
+        "Germany-Women": ["GW1", "GW2"],
+        "Brazil-Women": ["FB1"],
+        "France-Women": ["FF1"],
+        "Italy-Women": ["IF1"],
+        "Sweden-Women": ["SX1","SX2"],
+        "Argentina-Women": ["AP1"],
+        "Norway-Women": ["NW1", "NW2"],
+        "Iceland-Women": ["IW1", "IW2"],
+        "Scotland-Women": ["SP1"],
+        "Netherlands-Women": ["NV1"],
+        "Denmark-Women": ["DW1"],
+        "Belgium-Women": ["BW1"],
+        "Japan-Women": ["JW1", "JW2"],
+        "Finland-Women": ["FW1"],
+        "Mexico-Women": ["MF1"],
+        "Czech-Republic-Women": ["LZ1"],
+        "Israel-Women": ["IJ1"],
+        "USA-Women": ["UV1", "UV2"],
+        "Australia-Women": ["AW1"],
+        "South-Korea-Women": ["KX1"]
+    }
 }
 
-# Dictionary of countries and leagues for Women
-leagues_dict_women = {
-    "England-Women": ["UW1", "UW2"],
-    "Spain-Women": ["EW1", "EW2"],
-    "Germany-Women": ["GW1", "GW2"],
-    "Brazil-Women": ["FB1"],
-    "France-Women": ["FF1"],
-    "Italy-Women": ["IF1"],
-    "Sweden-Women": ["SX1","SX2"],
-    "Argentina-Women": ["AP1"],
-    "Norway-Women": ["NW1", "NW2"],
-    "Iceland-Women": ["IW1", "IW2"],
-    "Scotland-Women": ["SP1"],
-    "Netherlands-Women": ["NV1"],
-    "Denmark-Women": ["DW1"],
-    "Belgium-Women": ["BW1"],
-    "Japan-Women": ["JW1", "JW2"],
-    "Finland-Women": ["FW1"],
-    "Mexico-Women": ["MF1"],
-    "Czech-Republic-Women": ["LZ1"],
-    "Israel-Women": ["IJ1"],
-    "USA-Women": ["UV1", "UV2"],
-    "Australia-Women": ["AW1"],
-    "South-Korea-Women": ["KX1"]
-}
 
 spinner_messages = [
     "Fetching the latest football ratings...",
@@ -471,7 +472,7 @@ def fetch_data_for_selection(country, league, gender):
         st.session_state['current_selection'] = current_selection
         
         # FIX: Correctly format the country name for the URL for women's leagues
-        url_country = country.replace("-Women", "") if gender == 'women' else country
+        url_country = country.replace("-Women", "") if "Women" in gender else country
         
         # Show loading message
         with st.spinner(random.choice(spinner_messages)):
@@ -495,54 +496,42 @@ def fetch_data_for_selection(country, league, gender):
                            'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
                 
-                st.success(f"✅ Loaded {gender}'s {country} - {league}")
+                st.success(f"✅ Loaded {gender} {country} - {league}")
             else:
                 st.session_state['data_fetched'] = False
                 st.error(f"❌ Failed to load data for {country} - {league}")
 
-def on_men_league_change():
-    """Callback for men's league selection change."""
-    country = st.session_state.country_men
-    league = st.session_state.league_men
-    fetch_data_for_selection(country, league, 'men')
+def on_selection_change():
+    """Callback for any selection change."""
+    gender = st.session_state.gender_select
+    country = st.session_state.country_select
+    league = st.session_state.league_select
+    fetch_data_for_selection(country, league, gender)
 
-def on_women_league_change():
-    """Callback for women's league selection change."""
-    country = st.session_state.country_women
-    league = st.session_state.league_women
-    fetch_data_for_selection(country, league, 'women')
+# --- Unified Sidebar Interface ---
+selected_gender = st.sidebar.radio(
+    "Select Gender:",
+    list(leagues_data.keys()),
+    key="gender_select",
+    on_change=on_selection_change
+)
 
+country_list = list(leagues_data[selected_gender].keys())
+selected_country = st.sidebar.selectbox(
+    "Select Country:",
+    country_list,
+    key="country_select",
+    on_change=on_selection_change
+)
 
-# --- Tabbed Interface ---
-tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
+league_list = leagues_data[selected_gender][selected_country]
+selected_league = st.sidebar.selectbox(
+    "Select League:",
+    league_list,
+    key="league_select",
+    on_change=on_selection_change
+)
 
-with tab1:
-    selected_country_men = st.selectbox(
-        "Select Country:", 
-        list(leagues_dict_men.keys()), 
-        key="country_men",
-        on_change=on_men_league_change
-    )
-    selected_league_men = st.selectbox(
-        "Select League:", 
-        leagues_dict_men[selected_country_men], 
-        key="league_men",
-        on_change=on_men_league_change
-    )
-
-with tab2:
-    selected_country_women = st.selectbox(
-        "Select Country:", 
-        list(leagues_dict_women.keys()), 
-        key="country_women",
-        on_change=on_women_league_change
-    )
-    selected_league_women = st.selectbox(
-        "Select League:", 
-        leagues_dict_women[selected_country_women], 
-        key="league_women",
-        on_change=on_women_league_change
-    )
 
 # Main content area
 if st.session_state.get('data_fetched', False):
