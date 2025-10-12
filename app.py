@@ -464,14 +464,13 @@ if 'data_fetched' not in st.session_state:
     st.session_state['data_fetched'] = False
 if 'current_selection' not in st.session_state:
     st.session_state['current_selection'] = None
-if 'first_run' not in st.session_state:
-    st.session_state['first_run'] = True
 
 # Callback functions for automatic data fetching
 def fetch_data_for_selection(country, league):
     """Helper function to fetch data for a given selection"""
     current_selection = f"{country}_{league}"
     
+    # Only fetch if the selection has changed or if data hasn't been fetched yet
     if (st.session_state.get('current_selection') != current_selection or 
         not st.session_state.get('data_fetched', False)):
         
@@ -491,6 +490,7 @@ def fetch_data_for_selection(country, league):
                     "data_fetched": True
                 })
                 
+                # Clear team-specific data when the league changes
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 
                            'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
@@ -500,32 +500,24 @@ def fetch_data_for_selection(country, league):
                 st.session_state['data_fetched'] = False
                 st.error(f"❌ Failed to load data for {country} - {league}")
 
-def on_selection_change():
-    """Callback for any selection change."""
-    country = st.session_state.country_select
-    league = st.session_state.league_select
-    fetch_data_for_selection(country, league)
-
 # --- Unified Sidebar Interface ---
 selected_country = st.sidebar.selectbox(
     "Select Country/League Type:",
     sorted_countries,
-    key="country_select",
-    on_change=on_selection_change
+    key="country_select"
 )
 
 league_list = all_leagues[selected_country]
 selected_league = st.sidebar.selectbox(
     "Select League:",
     league_list,
-    key="league_select",
-    on_change=on_selection_change
+    key="league_select"
 )
 
-# Trigger initial data fetch on the first run
-if st.session_state.first_run:
-    on_selection_change()
-    st.session_state.first_run = False
+# Fetch data based on the current selections.
+# This logic runs on every script rerun, and the function itself
+# decides whether a new web request is needed.
+fetch_data_for_selection(selected_country, selected_league)
 
 
 # Main content area
