@@ -470,10 +470,13 @@ def fetch_data_for_selection(country, league, gender):
         
         st.session_state['current_selection'] = current_selection
         
+        # FIX: Correctly format the country name for the URL for women's leagues
+        url_country = country.replace("-Women", "") if gender == 'women' else country
+        
         # Show loading message
         with st.spinner(random.choice(spinner_messages)):
             # Fetch data
-            home_table, away_table, league_table = fetch_table_data(country, league)
+            home_table, away_table, league_table = fetch_table_data(url_country, league)
             
             if (isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame) and
                 not home_table.empty and not away_table.empty and
