@@ -500,19 +500,18 @@ def fetch_data_for_selection(country, league, gender):
                 st.session_state['data_fetched'] = False
                 st.error(f"❌ Failed to load data for {country} - {league}")
 
-def on_league_change():
-    """Callback function triggered when league selection changes"""
-    # Determine which tab is active and get the selection
-    if 'country_men' in st.session_state and 'league_men' in st.session_state:
-        country = st.session_state.country_men
-        league = st.session_state.league_men
-        gender = 'men'
-        fetch_data_for_selection(country, league, gender)
-    elif 'country_women' in st.session_state and 'league_women' in st.session_state:
-        country = st.session_state.country_women
-        league = st.session_state.league_women
-        gender = 'women'
-        fetch_data_for_selection(country, league, gender)
+def on_men_league_change():
+    """Callback for men's league selection change."""
+    country = st.session_state.country_men
+    league = st.session_state.league_men
+    fetch_data_for_selection(country, league, 'men')
+
+def on_women_league_change():
+    """Callback for women's league selection change."""
+    country = st.session_state.country_women
+    league = st.session_state.league_women
+    fetch_data_for_selection(country, league, 'women')
+
 
 # --- Tabbed Interface ---
 tab1, tab2 = st.sidebar.tabs(["Men's Football", "Women's Football"])
@@ -522,13 +521,13 @@ with tab1:
         "Select Country:", 
         list(leagues_dict_men.keys()), 
         key="country_men",
-        on_change=on_league_change
+        on_change=on_men_league_change
     )
     selected_league_men = st.selectbox(
         "Select League:", 
         leagues_dict_men[selected_country_men], 
         key="league_men",
-        on_change=on_league_change
+        on_change=on_men_league_change
     )
 
 with tab2:
@@ -536,31 +535,14 @@ with tab2:
         "Select Country:", 
         list(leagues_dict_women.keys()), 
         key="country_women",
-        on_change=on_league_change
+        on_change=on_women_league_change
     )
     selected_league_women = st.selectbox(
         "Select League:", 
         leagues_dict_women[selected_country_women], 
         key="league_women",
-        on_change=on_league_change
+        on_change=on_women_league_change
     )
-
-# Fallback check to ensure data is fetched even if callbacks don't trigger
-# This handles cases where country changes but league callback doesn't fire
-if not st.session_state.get('data_fetched', False):
-    # Determine current selection based on which tab has values
-    if 'country_men' in st.session_state and 'league_men' in st.session_state:
-        fetch_data_for_selection(
-            st.session_state.country_men, 
-            st.session_state.league_men, 
-            'men'
-        )
-    elif 'country_women' in st.session_state and 'league_women' in st.session_state:
-        fetch_data_for_selection(
-            st.session_state.country_women, 
-            st.session_state.league_women, 
-            'women'
-        )
 
 # Main content area
 if st.session_state.get('data_fetched', False):
@@ -815,3 +797,4 @@ if st.session_state.get('data_fetched', False):
 
 else:
     st.info("Please select a country and league in the sidebar to begin.")
+
