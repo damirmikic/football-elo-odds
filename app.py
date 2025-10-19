@@ -277,8 +277,8 @@ def fetch_league_odds(country, league):
         # Iterate over match rows (skipping the header row)
         for row in odds_table.find_all('tr')[1:]:
             cols = row.find_all('td')
-            # A valid odds row has 10 columns
-            if len(cols) >= 10:
+            # CORRECTED: A valid odds row has at least 11 columns
+            if len(cols) >= 11:
                 home_team_raw = cols[4].get_text(strip=True)
                 away_team_raw = cols[6].get_text(strip=True)
                 
@@ -286,9 +286,10 @@ def fetch_league_odds(country, league):
                 home_team = re.sub(r'[↑↓]', '', home_team_raw).strip()
                 away_team = re.sub(r'[↑↓]', '', away_team_raw).strip()
 
-                odd_1 = cols[7].get_text(strip=True)
-                odd_x = cols[8].get_text(strip=True)
-                odd_2 = cols[9].get_text(strip=True)
+                # CORRECTED: Updated column indices for the odds
+                odd_1 = cols[8].get_text(strip=True)
+                odd_x = cols[9].get_text(strip=True)
+                odd_2 = cols[10].get_text(strip=True)
                 
                 odds_data.append({
                     "home_team": home_team,
@@ -851,3 +852,4 @@ if st.session_state.get('data_fetched', False):
 
 else:
     st.info("Please select a country and league in the sidebar to begin.")
+
