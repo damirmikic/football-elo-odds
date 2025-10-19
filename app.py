@@ -188,6 +188,8 @@ def normalize_team_name(name):
     name = name.replace('ø', 'oe').replace('å', 'aa').replace('æ', 'ae')
     name = re.sub(r'[\&\-\.]+', ' ', name)
     name = re.sub(r'[^a-z0-9\s]', '', name)
+    # Remove league identifiers like (N) or (S) that sometimes appear in names
+    name = re.sub(r'\s\([ns]\)$', '', name)
     return ' '.join(name.split())
 
 # --- Data Fetching and Parsing Functions ---
@@ -217,6 +219,7 @@ def fetch_table_data(country, league):
                         team_link = cols[1].find('a')
                         if team_link and team_link.has_attr('href'):
                             team_url = team_link['href']
+                            # Extract team name from the URL for consistency
                             name_from_url = team_url.split('/')[1].replace('-', ' ')
                             rating = float(cols[4].get_text(strip=True))
                             teams_data.append({"Team": name_from_url, "Rating": rating, "URL": team_url})
@@ -250,6 +253,54 @@ def fetch_table_data(country, league):
         return home_rating_table, away_rating_table, league_table
     except Exception:
         return None, None, None
+
+# --- NEW FUNCTION TO FETCH ODDS ---
+@st.cache_data(ttl=3600)
+def fetch_league_odds(country, league):
+    """Fetches the available odds table from the main league page."""
+    url = f"https://www.soccer-rating.com/{country}/{league}/"
+    try:
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "lxml")
+
+        # Find the header "Rating Available Odds"
+        header = soup.find('th', string=re.compile(r"Rating\s*Available Odds"))
+        if not header:
+            return None # No odds table found
+
+        odds_table = header.find_parent('table')
+        if not odds_table:
+            return None
+
+        odds_data = []
+        # Iterate over match rows (skipping the header row)
+        for row in odds_table.find_all('tr')[1:]:
+            cols = row.find_all('td')
+            # A valid odds row has 10 columns
+            if len(cols) >= 10:
+                home_team_raw = cols[4].get_text(strip=True)
+                away_team_raw = cols[6].get_text(strip=True)
+                
+                # Clean team names by removing up/down arrows and other artifacts
+                home_team = re.sub(r'[↑↓]', '', home_team_raw).strip()
+                away_team = re.sub(r'[↑↓]', '', away_team_raw).strip()
+
+                odd_1 = cols[7].get_text(strip=True)
+                odd_x = cols[8].get_text(strip=True)
+                odd_2 = cols[9].get_text(strip=True)
+                
+                odds_data.append({
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "odd_1": odd_1,
+                    "odd_x": odd_x,
+                    "odd_2": odd_2
+                })
+        
+        return pd.DataFrame(odds_data) if odds_data else None
+    except Exception:
+        return None
 
 def find_section_header(soup, header_text):
     for header in soup.find_all('th'):
@@ -415,7 +466,7 @@ def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
     """
     # Calculate rating difference with home advantage
     home_advantage = 65  # Elo points advantage for playing at home
-    adjusted_rating_diff = home_rating - away_rating
+    adjusted_rating_diff = home_rating - away_rating + home_advantage
     
     # Calculate basic win probability using Elo formula (without draw consideration)
     p_home_vs_away = 1 / (1 + 10**(-adjusted_rating_diff / 400))
@@ -478,15 +529,19 @@ def fetch_data_for_selection(country, league):
         
         with st.spinner(random.choice(spinner_messages)):
             home_table, away_table, league_table = fetch_table_data(country, league)
+            # --- MODIFIED: Fetch odds data as well ---
+            odds_table = fetch_league_odds(country, league)
             
             if (isinstance(home_table, pd.DataFrame) and isinstance(away_table, pd.DataFrame) and
                 not home_table.empty and not away_table.empty and
                 "Team" in home_table.columns and "Team" in away_table.columns):
                 
+                # --- MODIFIED: Update session state with odds table ---
                 st.session_state.update({
                     "home_table": home_table, 
                     "away_table": away_table, 
                     "league_table": league_table, 
+                    "odds_table": odds_table, # Can be None if not found
                     "data_fetched": True
                 })
                 
@@ -515,8 +570,6 @@ selected_league = st.sidebar.selectbox(
 )
 
 # Fetch data based on the current selections.
-# This logic runs on every script rerun, and the function itself
-# decides whether a new web request is needed.
 fetch_data_for_selection(selected_country, selected_league)
 
 
@@ -525,6 +578,7 @@ if st.session_state.get('data_fetched', False):
     home_table = st.session_state.home_table
     away_table = st.session_state.away_table
     league_table = st.session_state.get("league_table")
+    odds_table = st.session_state.get("odds_table")
     
     with st.expander("⚽ Matchup", expanded=True):
         col1, col2 = st.columns(2)
@@ -563,6 +617,7 @@ if st.session_state.get('data_fetched', False):
             
             def display_team_stats(team_name, table, column):
                 try:
+                    # Use URL-based name for better matching in league table
                     normalized_target = normalize_team_name(team_name)
                     table['normalized_name'] = table.iloc[:, 1].apply(normalize_team_name)
                     team_stats_row = table[table['normalized_name'] == normalized_target]
@@ -598,10 +653,8 @@ if st.session_state.get('data_fetched', False):
 
         st.markdown("---")
         
-        # Get league-suggested draw rate for reference
         suggested_draw_rate = get_league_suggested_draw_rate(league_table)
         
-        # User control for draw probability
         st.markdown("**🎯 Draw Probability Control**")
         col_slider, col_info = st.columns([3, 1])
         
@@ -619,14 +672,41 @@ if st.session_state.get('data_fetched', False):
         with col_info:
             st.metric("League Avg", f"{suggested_draw_rate:.1%}", help="Suggested draw rate based on league data")
 
-        # Calculate probabilities with user-specified draw rate
         p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating, draw_probability)
         
-        st.markdown(f"**Calculated Fair Probabilities:**")
-        prob_cols = st.columns(3)
-        prob_cols[0].metric("Home Win", f"{p_home:.2%}")
-        prob_cols[1].metric("Draw", f"{p_draw:.2%}")
-        prob_cols[2].metric("Away Win", f"{p_away:.2%}")
+        # Display Calculated vs Market Odds side-by-side
+        st.markdown("---")
+        st.markdown(f"**Probability & Odds Comparison**")
+        
+        col_calc_h, col_calc_d, col_calc_a = st.columns(3)
+        col_calc_h.metric("Calculated Home Win Prob.", f"{p_home:.2%}")
+        col_calc_d.metric("Calculated Draw Prob.", f"{p_draw:.2%}")
+        col_calc_a.metric("Calculated Away Win Prob.", f"{p_away:.2%}")
+
+        # --- NEW: DISPLAY MARKET ODDS ---
+        if isinstance(odds_table, pd.DataFrame) and not odds_table.empty:
+            normalized_home = normalize_team_name(home_team_name)
+            normalized_away = normalize_team_name(away_team_name)
+            
+            odds_table['norm_home'] = odds_table['home_team'].apply(normalize_team_name)
+            odds_table['norm_away'] = odds_table['away_team'].apply(normalize_team_name)
+            
+            match_odds = odds_table[
+                (odds_table['norm_home'] == normalized_home) & 
+                (odds_table['norm_away'] == normalized_away)
+            ]
+            
+            col_market_h, col_market_d, col_market_a = st.columns(3)
+            if not match_odds.empty:
+                match = match_odds.iloc[0]
+                col_market_h.metric("Market Home Win Odds (1)", match['odd_1'])
+                col_market_d.metric("Market Draw Odds (X)", match['odd_x'])
+                col_market_a.metric("Market Away Win Odds (2)", match['odd_2'])
+            else:
+                st.info("Market odds not found for this specific matchup on soccer-rating.com.")
+        else:
+            st.info("No available market odds were found for this league.")
+        # --- END OF NEW SECTION ---
         
         st.markdown("---")
         
@@ -637,7 +717,7 @@ if st.session_state.get('data_fetched', False):
         d_odds = 1 / (p_draw * (1 + margin_decimal)) if p_draw > 0 else 0
         a_odds = 1 / (p_away * (1 + margin_decimal)) if p_away > 0 else 0
         
-        st.write("**Odds with Margin Applied:**")
+        st.write("**Calculated Odds with Margin Applied:**")
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"<div class='card'><div class='card-title'>Home Win (1)</div><div class='card-value'>{h_odds:.2f}</div></div>", unsafe_allow_html=True)
         c2.markdown(f"<div class='card'><div class='card-title'>Draw (X)</div><div class='card-value'>{d_odds:.2f}</div></div>", unsafe_allow_html=True)
@@ -646,11 +726,9 @@ if st.session_state.get('data_fetched', False):
         st.markdown("---")
         st.write("**Draw No Bet Odds with Margin Applied:**")
 
-        # Calculate Draw No Bet probabilities
         p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
         p_dnb_away = p_away / (p_home + p_away) if (p_home + p_away) > 0 else 0
         
-        # Apply margin to DNB probabilities
         dnb_h_odds = 1 / (p_dnb_home * (1 + margin_decimal)) if p_dnb_home > 0 else 0
         dnb_a_odds = 1 / (p_dnb_away * (1 + margin_decimal)) if p_dnb_away > 0 else 0
 
@@ -773,4 +851,3 @@ if st.session_state.get('data_fetched', False):
 
 else:
     st.info("Please select a country and league in the sidebar to begin.")
-
