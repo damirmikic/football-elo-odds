@@ -441,7 +441,7 @@ def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
     """
     Calculates home, draw, and away probabilities with user-specified draw rate.
     """
-    home_advantage = 65
+    home_advantage = 0
     adjusted_rating_diff = home_rating - away_rating + home_advantage
     p_home_vs_away = 1 / (1 + 10**(-adjusted_rating_diff / 400))
     
