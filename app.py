@@ -24,7 +24,7 @@ leagues_data = {
         "Russia": ["RU1", "RU2"],
         "Portugal": ["PT1", "PT2"],
         "Austria": ["AT1", "AT2", "AT3O", "AT3T", "AT3M", "AT3W", "AT3V"],
-        "Denmark": ["DK1", "DK2", "DK3G1", "DK3G2"],
+        "Denmark": ["DK1", "DK2", "DK3", "DK4"],
         "Greece": ["GR1", "GR2"],
         "Norway": ["NO1", "NO2", "NO3G1", "NO3G2"],
         "Czech Republic": ["CZ1", "CZ2"],
