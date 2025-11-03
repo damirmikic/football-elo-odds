@@ -594,11 +594,32 @@ st.markdown(
             font-family: 'Inter', sans-serif;
         }
 
-        .stApp {
+        body {
             background: radial-gradient(circle at 20% 20%, rgba(34,197,94,0.12), transparent 55%),
                         radial-gradient(circle at 80% 0%, rgba(59,130,246,0.14), transparent 50%),
                         linear-gradient(135deg, #f5f7fa 0%, #e2e8f0 100%);
             color: var(--text-main);
+        }
+
+        .stApp {
+            background: transparent;
+            color: var(--text-main);
+        }
+
+        .main .block-container {
+            background: rgba(255, 255, 255, 0.82);
+            border-radius: 28px;
+            padding: 28px 36px 40px;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+            border: 1px solid rgba(15, 118, 110, 0.08);
+            backdrop-filter: blur(10px);
+        }
+
+        @media (max-width: 992px) {
+            .main .block-container {
+                padding: 22px 20px 28px;
+                border-radius: 22px;
+            }
         }
 
         .stApp header { background: transparent; }
