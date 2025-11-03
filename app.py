@@ -615,9 +615,19 @@ st.markdown(
         }
 
         section[data-testid="stSidebar"] .stMarkdown p,
-        section[data-testid="stSidebar"] label,
-        section[data-testid="stSidebar"] span {
+        section[data-testid="stSidebar"] label {
             color: #cbd5f5;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stAlert"] {
+            background: #fef9c3;
+            border: 1px solid rgba(202, 138, 4, 0.35);
+            color: #713f12;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stAlert"] p,
+        section[data-testid="stSidebar"] div[data-testid="stAlert"] span {
+            color: #713f12 !important;
         }
 
         .header {
