@@ -7,6 +7,8 @@ import math
 import random
 import time
 import re
+import html
+from datetime import datetime
 
 # Set page title and icon
 st.set_page_config(page_title="Elo Ratings Odds Calculator", page_icon="odds_icon.png")
@@ -179,6 +181,21 @@ spinner_messages = [
     "Almost there, preparing the stats..."
 ]
 
+BASE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+}
+
+
+def fetch_with_headers(url, referer=None, timeout=15):
+    headers = BASE_HEADERS.copy()
+    headers["Referer"] = referer or "https://www.soccer-rating.com/"
+    response = requests.get(url, headers=headers, timeout=timeout)
+    response.raise_for_status()
+    return response
+
 # --- Helper Functions ---
 def normalize_team_name(name):
     """Robustly cleans and standardizes a team name for reliable matching."""
@@ -197,15 +214,14 @@ def normalize_team_name(name):
 @st.cache_data(ttl=3600)
 def fetch_table_data(country, league):
     """Fetches and parses ratings and league table in one go."""
-    home_url = f"https://www.soccer-rating.com/{country}/{league}/home/"
-    away_url = f"https://www.soccer-rating.com/{country}/{league}/away/"
+    base_url = f"https://www.soccer-rating.com/{country}/{league}/"
+    home_url = f"{base_url}home/"
+    away_url = f"{base_url}away/"
     try:
-        response_home = requests.get(home_url, headers={"User-Agent": "Mozilla/5.0"})
-        response_home.raise_for_status()
+        response_home = fetch_with_headers(home_url, referer=base_url)
         soup_home = BeautifulSoup(response_home.text, "lxml")
-        
-        response_away = requests.get(away_url, headers={"User-Agent": "Mozilla/5.0"})
-        response_away.raise_for_status()
+
+        response_away = fetch_with_headers(away_url, referer=base_url)
         soup_away = BeautifulSoup(response_away.text, "lxml")
 
         home_rating_table = None
@@ -259,42 +275,70 @@ def fetch_league_odds(country, league):
     """Fetches the available odds table from the main league page."""
     url = f"https://www.soccer-rating.com/{country}/{league}/"
     try:
-        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        response.raise_for_status()
+        response = fetch_with_headers(url)
         soup = BeautifulSoup(response.text, "lxml")
 
-        # Find the header "Rating Available Odds"
         header = soup.find('th', string=re.compile(r"Rating\s*Available Odds"))
         if not header:
-            return None # No odds table found
+            return None
 
         odds_table = header.find_parent('table')
         if not odds_table:
             return None
 
         odds_data = []
-        # Iterate over match rows (skipping the header row)
         for row in odds_table.find_all('tr')[1:]:
             cols = row.find_all('td')
-            if len(cols) >= 11:
-                home_team_raw = cols[4].get_text(strip=True)
-                away_team_raw = cols[6].get_text(strip=True)
-                
-                home_team = re.sub(r'[↑↓]', '', home_team_raw).strip()
-                away_team = re.sub(r'[↑↓]', '', away_team_raw).strip()
+            if not cols:
+                continue
 
-                odd_1 = cols[8].get_text(strip=True)
-                odd_x = cols[9].get_text(strip=True)
-                odd_2 = cols[10].get_text(strip=True)
-                
-                odds_data.append({
-                    "home_team": home_team,
-                    "away_team": away_team,
-                    "odd_1": odd_1,
-                    "odd_x": odd_x,
-                    "odd_2": odd_2
-                })
-        
+            # Guard against decorative spacer rows that break the expected width
+            if len(cols) < 7:
+                continue
+
+            date_text = cols[0].get_text(" ", strip=True)
+            date_text = date_text.split('•')[0].strip()
+
+            rating_text = cols[1].get_text(" ", strip=True)
+            league_code = cols[2].get_text(" ", strip=True)
+
+            flag_img = cols[3].find('img') if len(cols) >= 4 else None
+            flag_src = flag_img['src'] if flag_img and flag_img.has_attr('src') else None
+            if flag_src and flag_src.startswith('/'):
+                flag_src = f"https://www.soccer-rating.com{flag_src}"
+
+            home_index = 4 if len(cols) > 4 else None
+            away_index = 6 if len(cols) > 6 else None
+
+            home_team_raw = cols[home_index].get_text(" ", strip=True) if home_index is not None else ""
+            away_team_raw = cols[away_index].get_text(" ", strip=True) if away_index is not None else ""
+
+            clean_home = re.sub(r'[↑↓]', '', home_team_raw).strip()
+            clean_away = re.sub(r'[↑↓]', '', away_team_raw).strip()
+
+            odds_cells = cols[-3:]
+            if len(odds_cells) < 3:
+                continue
+
+            normalize_odd = lambda value: value.replace(',', '.').strip()
+            odd_1 = normalize_odd(odds_cells[0].get_text(strip=True)) or "-"
+            odd_x = normalize_odd(odds_cells[1].get_text(strip=True)) or "-"
+            odd_2 = normalize_odd(odds_cells[2].get_text(strip=True)) or "-"
+
+            odds_data.append({
+                "match_date": date_text,
+                "rating": rating_text,
+                "league_code": league_code,
+                "flag_src": flag_src,
+                "home_team_raw": home_team_raw,
+                "away_team_raw": away_team_raw,
+                "home_team": clean_home,
+                "away_team": clean_away,
+                "odd_1": odd_1,
+                "odd_x": odd_x,
+                "odd_2": odd_2
+            })
+
         return pd.DataFrame(odds_data) if odds_data else None
     except Exception:
         return None
@@ -304,6 +348,86 @@ def find_section_header(soup, header_text):
         if header_text in header.get_text():
             return header
     return None
+
+
+def render_odds_table(odds_df, league_label):
+    """Renders the available odds DataFrame as an HTML table."""
+    if not isinstance(odds_df, pd.DataFrame) or odds_df.empty:
+        return ""
+
+    header_html = f"""
+    <div class="odds-table-wrapper">
+        <table class="odds-table">
+            <caption>Rating &amp; Available Odds &mdash; {html.escape(league_label)}</caption>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Rating</th>
+                    <th>League</th>
+                    <th>Home</th>
+                    <th></th>
+                    <th>Away</th>
+                    <th>1</th>
+                    <th>X</th>
+                    <th>2</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+
+    body_rows = []
+    for _, row in odds_df.iterrows():
+        odds_values = []
+        best_index = None
+        parsed_odds = []
+        for value in (row.get('odd_1'), row.get('odd_x'), row.get('odd_2')):
+            try:
+                parsed_value = float(str(value).replace(',', '.'))
+            except (TypeError, ValueError):
+                parsed_value = None
+            parsed_odds.append(parsed_value)
+
+        if any(v is not None for v in parsed_odds):
+            max_value = max(v for v in parsed_odds if v is not None)
+            best_index = parsed_odds.index(max_value)
+
+        for idx, key in enumerate(['odd_1', 'odd_x', 'odd_2']):
+            cell_value = row.get(key, '')
+            cell_text = html.escape(str(cell_value)) if cell_value not in (None, '') else "-"
+            css_class = "odds-cell"
+            if best_index is not None and idx == best_index:
+                css_class += " best"
+            odds_values.append(f"<td class=\"{css_class}\">{cell_text}</td>")
+
+        flag_html = ""
+        flag_src = row.get('flag_src')
+        if flag_src:
+            flag_html = f"<img src=\"{html.escape(flag_src)}\" alt=\"flag\" width=\"20\" height=\"14\" style=\"margin-right:6px;\">"
+
+        body_rows.append(
+            """
+            <tr>
+                <td>{date}</td>
+                <td class="league-cell">{rating}</td>
+                <td class="league-cell">{league}</td>
+                <td class="teams-cell">{flag}{home}</td>
+                <td class="vs-cell"><span class="vs-badge">vs</span></td>
+                <td class="teams-cell">{away}</td>
+                {odds_cells}
+            </tr>
+            """.format(
+                date=html.escape(row.get('match_date', '')),
+                rating=html.escape(row.get('rating', '')),
+                league=html.escape(row.get('league_code', '')),
+                flag=flag_html,
+                home=html.escape(row.get('home_team_raw', row.get('home_team', ''))),
+                away=html.escape(row.get('away_team_raw', row.get('away_team', ''))),
+                odds_cells="".join(odds_values)
+            )
+        )
+
+    table_html = header_html + "".join(body_rows) + "</tbody></table></div>"
+    return table_html
 
 def get_correct_table(soup, target_team_name, target_team_url, header_text, table_id_1, table_id_2):
     """Finds the correct data table using a hybrid URL-first, then name-fallback approach."""
@@ -453,29 +577,281 @@ def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
     return p_home / total, draw_probability / total, p_away / total
 
 # --- UI Styling & App Layout ---
-st.markdown("""
+st.markdown(
+    """
     <style>
-        body { background-color: #f4f4f9; font-family: 'Arial', sans-serif; }
-        .header { font-size: 32px; color: #3b5998; font-weight: bold; text-align: center; }
-        .card { background-color: #f8f9fa; border: 1px solid #007BFF; border-radius: 8px; padding: 15px; text-align: center; margin: 10px 0;}
-        .card-title { color: #007BFF; font-weight: bold; font-size: 16px; }
-        .card-value { font-size: 22px; font-weight: bold; color: #333; }
-        .player-table-header { font-weight: bold; font-size: 14px; }
-        .odds-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.9em; padding: 4px 0; border-bottom: 1px solid #ddd;}
-        .odds-teams { flex-grow: 1; }
-        .odds-values { display: flex; justify-content: flex-end; width: 100px; }
-        .odds-value { font-weight: bold; width: 33%; text-align: center;}
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --primary:#0f766e;
+            --primary-dark:#0b4d4a;
+            --accent:#22c55e;
+            --text-main:#0f172a;
+            --muted:#5b7083;
+        }
+
+        html, body, [class*="css"]  {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .stApp {
+            background: radial-gradient(circle at 20% 20%, rgba(34,197,94,0.12), transparent 55%),
+                        radial-gradient(circle at 80% 0%, rgba(59,130,246,0.14), transparent 50%),
+                        linear-gradient(135deg, #f5f7fa 0%, #e2e8f0 100%);
+            color: var(--text-main);
+        }
+
+        .stApp header { background: transparent; }
+
+        section[data-testid="stSidebar"] {
+            background: rgba(15, 23, 42, 0.88);
+            color: #e2e8f0;
+            backdrop-filter: blur(16px);
+        }
+
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h1 {
+            color: #f8fafc;
+        }
+
+        section[data-testid="stSidebar"] .stMarkdown p,
+        section[data-testid="stSidebar"] label,
+        section[data-testid="stSidebar"] span {
+            color: #cbd5f5;
+        }
+
+        .header {
+            text-align: center;
+            font-size: 40px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--primary-dark);
+        }
+
+        .subheader {
+            text-align: center;
+            color: var(--muted);
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+
+        .hero-card {
+            background: rgba(255, 255, 255, 0.82);
+            border-radius: 20px;
+            padding: 24px 28px;
+            box-shadow: 0 20px 45px rgba(15, 118, 110, 0.18);
+            border: 1px solid rgba(15, 118, 110, 0.08);
+            margin-bottom: 28px;
+        }
+
+        .hero-title {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--primary-dark);
+        }
+
+        .hero-subtitle {
+            color: var(--muted);
+            margin-top: 4px;
+            font-size: 14px;
+        }
+
+        .hero-meta {
+            margin-top: 16px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .hero-pill {
+            background: rgba(34, 197, 94, 0.14);
+            color: var(--primary-dark);
+            border-radius: 999px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+
+        .card {
+            background: linear-gradient(135deg, rgba(15, 118, 110, 0.1), rgba(34, 197, 94, 0.08));
+            padding: 18px;
+            border-radius: 16px;
+            box-shadow: 0 18px 30px rgba(15, 23, 42, 0.08);
+            text-align: center;
+            border: 1px solid rgba(15, 118, 110, 0.14);
+        }
+
+        .card-title {
+            font-size: 13px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+        }
+
+        .card-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary-dark);
+        }
+
+        .player-table-header {
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .odds-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.88em;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            border-radius: 12px;
+            background: rgba(148, 163, 184, 0.12);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+        }
+
+        .odds-teams { flex-grow: 1; font-weight: 600; color: var(--text-main); }
+
+        .odds-values {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            min-width: 120px;
+        }
+
+        .odds-value {
+            font-weight: 700;
+            color: var(--primary-dark);
+            text-align: center;
+        }
+
+        .odds-table-wrapper { margin-top: 10px; }
+
+        .odds-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            background: rgba(255,255,255,0.92);
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
+        }
+
+        .odds-table caption {
+            background: linear-gradient(120deg, rgba(15, 118, 110, 0.92), rgba(34, 197, 94, 0.82));
+            color: #f8fafc;
+            font-weight: 700;
+            padding: 12px 18px;
+            text-align: center;
+            font-size: 14px;
+            letter-spacing: 0.05em;
+        }
+
+        .odds-table thead th {
+            background-color: rgba(15, 118, 110, 0.12);
+            color: var(--primary-dark);
+            padding: 12px 8px;
+            text-align: center;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .odds-table tbody td {
+            padding: 12px 10px;
+            font-size: 12px;
+            border-bottom: 1px solid rgba(15, 118, 110, 0.08);
+            vertical-align: middle;
+        }
+
+        .odds-table tbody tr:nth-child(even) { background-color: rgba(241, 245, 249, 0.7); }
+
+        .odds-table .teams-cell { font-weight: 600; color: var(--text-main); }
+
+        .odds-table .league-cell { text-align: center; font-weight: 600; color: var(--primary-dark); }
+
+        .odds-table .odds-cell { text-align: center; font-weight: 600; color: var(--text-main); }
+
+        .odds-table .odds-cell.best { color: var(--primary); font-weight: 700; }
+
+        .vs-cell { text-align: center; }
+
+        .vs-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.14);
+            color: var(--primary-dark);
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        div[data-testid="stExpander"] {
+            border-radius: 18px;
+            border: 1px solid rgba(15, 118, 110, 0.12);
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+            background: rgba(255,255,255,0.9);
+        }
+
+        div[data-testid="stExpander"] > div:first-child {
+            border-radius: 18px;
+            background: rgba(15, 118, 110, 0.1);
+        }
+
+        div[data-testid="stExpander"] label {
+            color: var(--primary-dark) !important;
+            font-weight: 600;
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            font-weight: 600;
+            color: var(--primary-dark);
+        }
+
+        .sidebar-odds-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 10px;
+            color: #94a3b8;
+        }
+
+        .pill-muted {
+            background: rgba(148, 163, 184, 0.18);
+            color: #e2e8f0;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 10px;
+            letter-spacing: 0.06em;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="header">⚽ Elo Ratings Odds Calculator</div>', unsafe_allow_html=True)
+st.markdown(
+    """
+    <div class="header">⚽ Elo Ratings Odds Studio</div>
+    <div class="subheader">Track live ratings, surface the sharpest prices, and dive into form in one polished workspace.</div>
+    """,
+    unsafe_allow_html=True
+)
 
-with st.sidebar.expander("How to Use This App", expanded=True):
-    st.write("1. **Select a league** to load ratings and odds.")
-    st.write("2. **View market odds** directly in the sidebar.")
-    st.write("3. **Select teams** in the main area for detailed analysis.")
+with st.sidebar.expander("✨ Quick Guide", expanded=True):
+    st.markdown(
+        """
+        - Select a **country + league** to pull the freshest ratings snapshot.
+        - Scan the **market odds rail** for instant price discovery.
+        - Use the main workspace to **compare clubs, lineups, and value zones**.
+        """
+    )
 
-st.sidebar.header("⚽ Select Match Details")
+st.sidebar.header("🎯 Build Your Matchup")
 
 if 'data_fetched' not in st.session_state: st.session_state['data_fetched'] = False
 if 'current_selection' not in st.session_state: st.session_state['current_selection'] = None
@@ -490,9 +866,12 @@ def fetch_data_for_selection(country, league):
             
             if isinstance(home_table, pd.DataFrame) and not home_table.empty:
                 st.session_state.update({
-                    "home_table": home_table, "away_table": away_table, 
-                    "league_table": league_table, "odds_table": odds_table,
-                    "data_fetched": True
+                    "home_table": home_table,
+                    "away_table": away_table,
+                    "league_table": league_table,
+                    "odds_table": odds_table,
+                    "data_fetched": True,
+                    "last_refresh": time.time()
                 })
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 
                            'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
@@ -514,10 +893,14 @@ if st.session_state.get('data_fetched', False):
         odds_table = st.session_state.get("odds_table")
         if isinstance(odds_table, pd.DataFrame) and not odds_table.empty:
             st.markdown(
-                """<div class="odds-row">
-                    <div class="odds-teams"><b>Match</b></div>
-                    <div class="odds-values"><div class="odds-value">1</div><div class="odds-value">X</div><div class="odds-value">2</div></div>
-                </div>""", unsafe_allow_html=True)
+                """
+                <div class="sidebar-odds-header">
+                    <span>Upcoming matchups</span>
+                    <span class="pill-muted">1 · X · 2</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
             for _, row in odds_table.iterrows():
                 st.markdown(
                     f"""<div class="odds-row">
@@ -529,13 +912,44 @@ if st.session_state.get('data_fetched', False):
                         </div>
                     </div>""", unsafe_allow_html=True)
         else:
-            st.info("No market odds available for this league.")
+            st.warning("Market odds are not available right now. Try refreshing or choose another league.")
 
 # --- Main Content Area ---
 if st.session_state.get('data_fetched', False):
     home_table = st.session_state.home_table
     away_table = st.session_state.away_table
-    
+
+    odds_table = st.session_state.get("odds_table")
+    match_count = int(odds_table.shape[0]) if isinstance(odds_table, pd.DataFrame) else 0
+    last_refresh = st.session_state.get("last_refresh")
+    if last_refresh:
+        refresh_text = datetime.utcfromtimestamp(last_refresh).strftime("%d %b %Y %H:%M UTC")
+    else:
+        refresh_text = "Awaiting refresh"
+
+    st.markdown(
+        f"""
+        <div class="hero-card">
+            <div class="hero-title">{html.escape(selected_country)} · {html.escape(selected_league)}</div>
+            <div class="hero-subtitle">Explore the live blend of Elo strength, bookmaker prices, and matchup context.</div>
+            <div class="hero-meta">
+                <span class="hero-pill">Upcoming fixtures: {match_count}</span>
+                <span class="hero-pill">Last synced: {refresh_text}</span>
+                <span class="hero-pill">Interactive odds modelling</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.expander("🎲 League Available Odds", expanded=True):
+        odds_table = st.session_state.get("odds_table")
+        if isinstance(odds_table, pd.DataFrame) and not odds_table.empty:
+            league_label = f"{selected_country} {selected_league}"
+            st.markdown(render_odds_table(odds_table, league_label), unsafe_allow_html=True)
+        else:
+            st.warning("Market odds are not available right now. Try refreshing or choose another league.")
+
     with st.expander("⚽ Matchup", expanded=True):
         col1, col2 = st.columns(2)
         home_team_name = col1.selectbox("Select Home Team:", home_table["Team"], key="home_team_select")
