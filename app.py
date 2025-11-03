@@ -821,21 +821,54 @@ st.markdown(
             letter-spacing: 0.08em;
         }
 
-        div[data-testid="stExpander"] {
+        div[data-testid="stAlert"] {
+            color: var(--text-main);
+        }
+
+        div[data-testid="stAlert"] p,
+        div[data-testid="stAlert"] span {
+            color: var(--text-main) !important;
+        }
+
+        .main div[data-testid="stExpander"] {
             border-radius: 18px;
             border: 1px solid rgba(15, 118, 110, 0.12);
             box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
             background: rgba(255,255,255,0.9);
         }
 
-        div[data-testid="stExpander"] > div:first-child {
+        .main div[data-testid="stExpander"] > div:first-child {
             border-radius: 18px;
             background: rgba(15, 118, 110, 0.1);
         }
 
-        div[data-testid="stExpander"] label {
+        .main div[data-testid="stExpander"] label {
             color: var(--primary-dark) !important;
             font-weight: 600;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+            border-radius: 18px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: rgba(15, 23, 42, 0.78);
+            box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.18);
+            color: #e2e8f0;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] > div:first-child {
+            border-radius: 18px;
+            background: rgba(15, 23, 42, 0.62);
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] button {
+            color: #f8fafc !important;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] p,
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] li,
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] span,
+        section[data-testid="stSidebar"] div[data-testid="stExpander"] label {
+            color: #e2e8f0 !important;
         }
 
         .stTabs [data-baseweb="tab"] {
