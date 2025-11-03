@@ -7,6 +7,7 @@ import math
 import random
 import time
 import re
+import html
 
 # Set page title and icon
 st.set_page_config(page_title="Elo Ratings Odds Calculator", page_icon="odds_icon.png")
@@ -263,38 +264,55 @@ def fetch_league_odds(country, league):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
 
-        # Find the header "Rating Available Odds"
         header = soup.find('th', string=re.compile(r"Rating\s*Available Odds"))
         if not header:
-            return None # No odds table found
+            return None
 
         odds_table = header.find_parent('table')
         if not odds_table:
             return None
 
         odds_data = []
-        # Iterate over match rows (skipping the header row)
         for row in odds_table.find_all('tr')[1:]:
             cols = row.find_all('td')
-            if len(cols) >= 11:
-                home_team_raw = cols[4].get_text(strip=True)
-                away_team_raw = cols[6].get_text(strip=True)
-                
-                home_team = re.sub(r'[↑↓]', '', home_team_raw).strip()
-                away_team = re.sub(r'[↑↓]', '', away_team_raw).strip()
+            if len(cols) < 10:
+                continue
 
-                odd_1 = cols[8].get_text(strip=True)
-                odd_x = cols[9].get_text(strip=True)
-                odd_2 = cols[10].get_text(strip=True)
-                
-                odds_data.append({
-                    "home_team": home_team,
-                    "away_team": away_team,
-                    "odd_1": odd_1,
-                    "odd_x": odd_x,
-                    "odd_2": odd_2
-                })
-        
+            date_text = cols[0].get_text(" ", strip=True)
+            date_text = date_text.split('•')[0].strip()
+
+            rating_text = cols[1].get_text(strip=True)
+            league_code = cols[2].get_text(strip=True)
+
+            flag_img = cols[3].find('img')
+            flag_src = flag_img['src'] if flag_img and flag_img.has_attr('src') else None
+            if flag_src and flag_src.startswith('/'):
+                flag_src = f"https://www.soccer-rating.com{flag_src}"
+
+            home_team_raw = cols[4].get_text(" ", strip=True)
+            away_team_raw = cols[6].get_text(" ", strip=True)
+
+            clean_home = re.sub(r'[↑↓]', '', home_team_raw).strip()
+            clean_away = re.sub(r'[↑↓]', '', away_team_raw).strip()
+
+            odd_1 = cols[7].get_text(strip=True)
+            odd_x = cols[8].get_text(strip=True)
+            odd_2 = cols[9].get_text(strip=True)
+
+            odds_data.append({
+                "match_date": date_text,
+                "rating": rating_text,
+                "league_code": league_code,
+                "flag_src": flag_src,
+                "home_team_raw": home_team_raw,
+                "away_team_raw": away_team_raw,
+                "home_team": clean_home,
+                "away_team": clean_away,
+                "odd_1": odd_1,
+                "odd_x": odd_x,
+                "odd_2": odd_2
+            })
+
         return pd.DataFrame(odds_data) if odds_data else None
     except Exception:
         return None
@@ -304,6 +322,86 @@ def find_section_header(soup, header_text):
         if header_text in header.get_text():
             return header
     return None
+
+
+def render_odds_table(odds_df, league_label):
+    """Renders the available odds DataFrame as an HTML table."""
+    if not isinstance(odds_df, pd.DataFrame) or odds_df.empty:
+        return ""
+
+    header_html = f"""
+    <div class="odds-table-wrapper">
+        <table class="odds-table">
+            <caption>Rating &amp; Available Odds &mdash; {html.escape(league_label)}</caption>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Rating</th>
+                    <th>League</th>
+                    <th>Home</th>
+                    <th></th>
+                    <th>Away</th>
+                    <th>1</th>
+                    <th>X</th>
+                    <th>2</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+
+    body_rows = []
+    for _, row in odds_df.iterrows():
+        odds_values = []
+        best_index = None
+        parsed_odds = []
+        for value in (row.get('odd_1'), row.get('odd_x'), row.get('odd_2')):
+            try:
+                parsed_value = float(value)
+            except (TypeError, ValueError):
+                parsed_value = None
+            parsed_odds.append(parsed_value)
+
+        if any(v is not None for v in parsed_odds):
+            max_value = max(v for v in parsed_odds if v is not None)
+            best_index = parsed_odds.index(max_value)
+
+        for idx, key in enumerate(['odd_1', 'odd_x', 'odd_2']):
+            cell_value = row.get(key, '')
+            cell_text = html.escape(str(cell_value)) if cell_value not in (None, '') else "-"
+            css_class = "odds-cell"
+            if best_index is not None and idx == best_index:
+                css_class += " best"
+            odds_values.append(f"<td class=\"{css_class}\">{cell_text}</td>")
+
+        flag_html = ""
+        flag_src = row.get('flag_src')
+        if flag_src:
+            flag_html = f"<img src=\"{html.escape(flag_src)}\" alt=\"flag\" width=\"20\" height=\"14\" style=\"margin-right:6px;\">"
+
+        body_rows.append(
+            """
+            <tr>
+                <td>{date}</td>
+                <td class="league-cell">{rating}</td>
+                <td class="league-cell">{league}</td>
+                <td class="teams-cell">{flag}{home}</td>
+                <td style="text-align:center; font-weight:bold;">vs</td>
+                <td class="teams-cell">{away}</td>
+                {odds_cells}
+            </tr>
+            """.format(
+                date=html.escape(row.get('match_date', '')),
+                rating=html.escape(row.get('rating', '')),
+                league=html.escape(row.get('league_code', '')),
+                flag=flag_html,
+                home=html.escape(row.get('home_team_raw', row.get('home_team', ''))),
+                away=html.escape(row.get('away_team_raw', row.get('away_team', ''))),
+                odds_cells="".join(odds_values)
+            )
+        )
+
+    table_html = header_html + "".join(body_rows) + "</tbody></table></div>"
+    return table_html
 
 def get_correct_table(soup, target_team_name, target_team_url, header_text, table_id_1, table_id_2):
     """Finds the correct data table using a hybrid URL-first, then name-fallback approach."""
@@ -465,6 +563,16 @@ st.markdown("""
         .odds-teams { flex-grow: 1; }
         .odds-values { display: flex; justify-content: flex-end; width: 100px; }
         .odds-value { font-weight: bold; width: 33%; text-align: center;}
+        .odds-table-wrapper { margin-top: 10px; }
+        .odds-table { width: 100%; max-width: 680px; border-collapse: collapse; font-size: 13px; background-color: #ffffff; }
+        .odds-table caption { background-color: #006600; color: #ffffff; font-weight: bold; padding: 6px 8px; text-align: center; }
+        .odds-table thead th { background-color: #006600; color: #ffffff; padding: 6px 8px; text-align: center; font-size: 12px; }
+        .odds-table tbody td { padding: 6px 8px; font-size: 12px; border-bottom: 1px solid #dcdcdc; vertical-align: middle; }
+        .odds-table tbody tr:nth-child(even) { background-color: #f6f6f6; }
+        .odds-table .teams-cell { font-weight: 600; }
+        .odds-table .league-cell { text-align: center; font-weight: bold; color: #006600; }
+        .odds-table .odds-cell { text-align: center; font-weight: 600; }
+        .odds-table .odds-cell.best { color: #006600; font-weight: 700; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -535,7 +643,15 @@ if st.session_state.get('data_fetched', False):
 if st.session_state.get('data_fetched', False):
     home_table = st.session_state.home_table
     away_table = st.session_state.away_table
-    
+
+    with st.expander("🎲 League Available Odds", expanded=False):
+        odds_table = st.session_state.get("odds_table")
+        if isinstance(odds_table, pd.DataFrame) and not odds_table.empty:
+            league_label = f"{selected_country} {selected_league}"
+            st.markdown(render_odds_table(odds_table, league_label), unsafe_allow_html=True)
+        else:
+            st.info("No market odds available for this league.")
+
     with st.expander("⚽ Matchup", expanded=True):
         col1, col2 = st.columns(2)
         home_team_name = col1.selectbox("Select Home Team:", home_table["Team"], key="home_team_select")
