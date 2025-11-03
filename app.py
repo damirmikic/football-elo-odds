@@ -847,6 +847,46 @@ st.markdown(
             font-weight: 600;
         }
 
+        .main div[data-testid="stExpander"] p,
+        .main div[data-testid="stExpander"] span,
+        .main div[data-testid="stExpander"] li,
+        .main div[data-testid="stExpander"] h1,
+        .main div[data-testid="stExpander"] h2,
+        .main div[data-testid="stExpander"] h3,
+        .main div[data-testid="stExpander"] h4,
+        .main div[data-testid="stExpander"] h5,
+        .main div[data-testid="stExpander"] h6 {
+            color: var(--text-main) !important;
+        }
+
+        .main div[data-testid="stExpander"] div[data-testid="stMarkdown"] p,
+        .main div[data-testid="stExpander"] div[data-testid="stMarkdown"] li,
+        .main div[data-testid="stExpander"] div[data-testid="stMarkdown"] span {
+            color: var(--text-main) !important;
+        }
+
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+            color: var(--primary-dark) !important;
+        }
+
+        div[data-testid="stMetric"] div[data-testid="stMetricLabel"] {
+            color: var(--text-main) !important;
+            font-weight: 600;
+        }
+
+        div[data-testid="stMetric"] div[data-testid="stMetricDelta"] {
+            color: var(--accent) !important;
+        }
+
+        .main div[data-testid="stExpander"] pre {
+            color: var(--text-main);
+            background: rgba(15, 118, 110, 0.08);
+            border-radius: 14px;
+            padding: 10px 14px;
+            font-weight: 600;
+            border: 1px solid rgba(15, 118, 110, 0.12);
+        }
+
         section[data-testid="stSidebar"] div[data-testid="stExpander"] {
             border-radius: 18px;
             border: 1px solid rgba(148, 163, 184, 0.35);
@@ -894,6 +934,42 @@ st.markdown(
             border-radius: 999px;
             font-size: 10px;
             letter-spacing: 0.06em;
+        }
+
+        .match-line {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: 14px;
+            background: rgba(15, 118, 110, 0.08);
+            border: 1px solid rgba(15, 118, 110, 0.14);
+            color: var(--text-main);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .match-line + .match-line {
+            margin-top: 10px;
+        }
+
+        .match-date {
+            color: var(--primary-dark);
+            font-weight: 700;
+            min-width: 70px;
+        }
+
+        .match-opponent {
+            flex: 1;
+        }
+
+        .match-result {
+            background: rgba(34, 197, 94, 0.18);
+            color: var(--primary-dark);
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -1149,7 +1225,17 @@ if st.session_state.get('data_fetched', False):
             if not matches_data or not matches_data["matches"]: st.warning("Recent match data not available."); return
             st.metric("Points in Last 5 League Matches", matches_data["points"])
             for match in matches_data["matches"]:
-                st.text(f"{match['date']}: {match['opponent']} ({match['result']})")
+                match_date = html.escape(match['date'])
+                opponent = html.escape(match['opponent'])
+                result = html.escape(match['result'])
+                st.markdown(
+                    f"<div class='match-line'>"
+                    f"<span class='match-date'>{match_date}</span>"
+                    f"<span class='match-opponent'>{opponent}</span>"
+                    f"<span class='match-result'>{result}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
 
         match_col1, match_col2 = st.columns(2)
         with match_col1: display_last_matches(f"{home_team_name} (Home)", "home_matches")
