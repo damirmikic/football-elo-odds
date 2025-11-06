@@ -1362,4 +1362,3 @@ if st.session_state.get('data_fetched', False):
 
 else:
     st.info("Please select a country and league in the sidebar to begin.")
-
