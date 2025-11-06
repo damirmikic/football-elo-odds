@@ -612,7 +612,7 @@ if st.session_state.get('data_fetched', False):
     )
 
     # --- Global Odds Inputs (Used by both tabs) ---
-    with st.expander("📈 Odds Analysis (Global Inputs)", expanded=True):
+    with st.expander("📈 Analysis Inputs", expanded=True):
         # We need a default team selection for the initial rating display
         # This will be updated inside the "Single Match" tab
         default_home_team = home_table["Team"].iloc[0]
@@ -633,11 +633,11 @@ if st.session_state.get('data_fetched', False):
         suggested_draw_rate = get_league_suggested_draw_rate(league_table)
         col_slider, col_info = st.columns([3, 1])
         
-        draw_probability = col_slider.slider("Set Global Draw Probability:", 0.15, 0.45, suggested_draw_rate, 0.01, "%.2f", key="global_draw_prob")
+        draw_probability = col_slider.slider("Set Draw Probability:", 0.15, 0.45, suggested_draw_rate, 0.01, "%.2f", key="global_draw_prob")
         col_info.metric("League Avg", f"{suggested_draw_rate:.1%}")
         
-        margin = st.slider("Apply Global Bookmaker's Margin (%):", 0, 15, 5, 1, key="global_margin")
-        margin_decimal = margin / 100.0
+        # margin = st.slider("Apply Global Bookmaker's Margin (%):", 0, 15, 5, 1, key="global_margin")
+        # margin_decimal = margin / 100.0
 
 
     # --- Analysis Tabs ---
@@ -684,9 +684,13 @@ if st.session_state.get('data_fetched', False):
             prob_cols[2].metric("Away Win", f"{p_away:.2%}")
             
             st.markdown("---")
-            h_odds = 1 / (p_home * (1 + margin_decimal)) if p_home > 0 else 0
-            d_odds = 1 / (p_draw * (1 + margin_decimal)) if p_draw > 0 else 0
-            a_odds = 1 / (p_away * (1 + margin_decimal)) if p_away > 0 else 0
+            # ADDED: Margin slider for this tab
+            margin_single = st.slider("Apply Bookmaker's Margin (%):", 0, 15, 5, 1, key="single_margin")
+            margin_decimal_single = margin_single / 100.0
+            
+            h_odds = 1 / (p_home * (1 + margin_decimal_single)) if p_home > 0 else 0
+            d_odds = 1 / (p_draw * (1 + margin_decimal_single)) if p_draw > 0 else 0
+            a_odds = 1 / (p_away * (1 + margin_decimal_single)) if p_away > 0 else 0
             
             st.write("**Calculated Odds with Margin:**")
             c1, c2, c3 = st.columns(3)
@@ -697,8 +701,8 @@ if st.session_state.get('data_fetched', False):
             st.markdown("---")
             st.write("**Draw No Bet Odds:**")
             p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
-            dnb_h_odds = 1 / (p_dnb_home * (1 + margin_decimal)) if p_dnb_home > 0 else 0
-            dnb_a_odds = 1 / ((1 - p_dnb_home) * (1 + margin_decimal)) if (1-p_dnb_home) > 0 else 0
+            dnb_h_odds = 1 / (p_dnb_home * (1 + margin_decimal_single)) if p_dnb_home > 0 else 0
+            dnb_a_odds = 1 / ((1 - p_dnb_home) * (1 + margin_decimal_single)) if (1-p_dnb_home) > 0 else 0
             dnb_c1, dnb_c2 = st.columns(2)
             dnb_c1.markdown(f"<div class='card'><div class='card-title'>Home (DNB)</div><div class='card-value'>{dnb_h_odds:.2f}</div></div>", unsafe_allow_html=True)
             dnb_c2.markdown(f"<div class='card'><div class='card-title'>Away (DNB)</div><div class='card-value'>{dnb_a_odds:.2f}</div></div>", unsafe_allow_html=True)
@@ -728,28 +732,76 @@ if st.session_state.get('data_fetched', False):
     
     with tab2:
         st.subheader("Multi-Match Parlay Calculator")
-        st.write("Select teams and picks for your parlay. The Draw % and Margin % from the 'Global Inputs' expander above will be applied.")
+        st.write("Select teams and picks for your parlay. The Draw % from the 'Analysis Inputs' expander will be used.")
+
+        # ADDED: Margin slider for this tab
+        margin_multi = st.slider("Apply Bookmaker's Margin (%):", 0, 15, 5, 1, key="multi_margin")
+        margin_decimal_multi = margin_multi / 100.0
 
         team_list = ["---"] + sorted(home_table["Team"].unique())
         num_teams = len(team_list) - 1
         num_rows = math.ceil(num_teams / 2)
         
-        pick_options = ["---", "Home Win", "Draw", "Away Win"]
+        pick_options = ["---", "Home Win (1)", "Draw (X)", "Away Win (2)"]
         
         selections = []
 
+        # New layout with headers
+        st.markdown("---")
+        header_cols = st.columns([3, 3, 1, 1, 1, 2])
+        header_cols[0].markdown("**Home Team**")
+        header_cols[1].markdown("**Away Team**")
+        header_cols[2].markdown("<div class='odds-display'><b>1</b></div>", unsafe_allow_html=True)
+        header_cols[3].markdown("<div class='odds-display'><b>X</b></div>", unsafe_allow_html=True)
+        header_cols[4].markdown("<div class='odds-display'><b>2</b></div>", unsafe_allow_html=True)
+        header_cols[5].markdown("**Your Pick**")
+
+
         for i in range(num_rows):
-            st.markdown("---")
-            cols = st.columns([3, 3, 2])
+            cols = st.columns([3, 3, 1, 1, 1, 2])
             with cols[0]:
-                home_selection = st.selectbox("Home Team", team_list, key=f"multi_home_{i}", index=0)
+                home_selection = st.selectbox("Home Team", team_list, key=f"multi_home_{i}", index=0, label_visibility="collapsed")
             with cols[1]:
-                away_selection = st.selectbox("Away Team", team_list, key=f"multi_away_{i}", index=0)
-            with cols[2]:
-                pick_selection = st.selectbox("Pick", pick_options, key=f"multi_pick_{i}", index=0)
+                away_selection = st.selectbox("Away Team", team_list, key=f"multi_away_{i}", index=0, label_visibility="collapsed")
             
-            if home_selection != "---" and away_selection != "---" and pick_selection != "---":
-                selections.append((home_selection, away_selection, pick_selection))
+            # Placeholders for odds
+            odds_1_col = cols[2]
+            odds_x_col = cols[3]
+            odds_2_col = cols[4]
+
+            with cols[5]:
+                pick_selection = st.selectbox("Pick", pick_options, key=f"multi_pick_{i}", index=0, label_visibility="collapsed")
+            
+            # Now, calculate and display odds if teams are selected
+            if home_selection != "---" and away_selection != "---":
+                try:
+                    home_rating = home_table[home_table["Team"] == home_selection].iloc[0]['Rating']
+                    away_rating = away_table[away_table["Team"] == away_selection].iloc[0]['Rating']
+                    
+                    p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating, draw_probability)
+                    
+                    h_odds = 1 / (p_home * (1 + margin_decimal_multi)) if p_home > 0 else 0
+                    d_odds = 1 / (p_draw * (1 + margin_decimal_multi)) if p_draw > 0 else 0
+                    a_odds = 1 / (p_away * (1 + margin_decimal_multi)) if p_away > 0 else 0
+
+                    odds_1_col.markdown(f"<div class='odds-display'>{h_odds:.2f}</div>", unsafe_allow_html=True)
+                    odds_x_col.markdown(f"<div class='odds-display'>{d_odds:.2f}</div>", unsafe_allow_html=True)
+                    odds_2_col.markdown(f"<div class='odds-display'>{a_odds:.2f}</div>", unsafe_allow_html=True)
+
+                    # Add to selections if pick is also made
+                    if pick_selection != "---":
+                        selections.append((home_selection, away_selection, pick_selection, p_home, p_draw, p_away))
+
+                except Exception:
+                    # Handle error if team not found (shouldn't happen)
+                    odds_1_col.markdown("<div class='odds-display'>Err</div>", unsafe_allow_html=True)
+                    odds_x_col.markdown("<div class='odds-display'>Err</div>", unsafe_allow_html=True)
+                    odds_2_col.markdown("<div class='odds-display'>Err</div>", unsafe_allow_html=True)
+            else:
+                odds_1_col.markdown(f"<div class='odds-display'>-</div>", unsafe_allow_html=True)
+                odds_x_col.markdown(f"<div class='odds-display'>-</div>", unsafe_allow_html=True)
+                odds_2_col.markdown(f"<div class='odds-display'>-</div>", unsafe_allow_html=True)
+
         
         st.markdown("---")
         if st.button("Calculate Parlay Odds", type="primary"):
@@ -757,34 +809,32 @@ if st.session_state.get('data_fetched', False):
                 st.warning("Please select at least one full match (Home, Away, and Pick).")
             else:
                 total_fair_prob = 1.0
+                total_bookie_prob_with_margin = 1.0
                 valid_legs = 0
                 
                 try:
-                    for home_name, away_name, pick in selections:
-                        home_rating = home_table[home_table["Team"] == home_name].iloc[0]['Rating']
-                        away_rating = away_table[away_table["Team"] == away_name].iloc[0]['Rating']
-                        
-                        p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating, draw_probability)
-                        
-                        if pick == "Home Win":
+                    for home_name, away_name, pick, p_home, p_draw, p_away in selections:
+                        if pick == "Home Win (1)":
                             total_fair_prob *= p_home
-                        elif pick == "Draw":
+                            total_bookie_prob_with_margin *= (p_home * (1 + margin_decimal_multi))
+                        elif pick == "Draw (X)":
                             total_fair_prob *= p_draw
-                        elif pick == "Away Win":
+                            total_bookie_prob_with_margin *= (p_draw * (1 + margin_decimal_multi))
+                        elif pick == "Away Win (2)":
                             total_fair_prob *= p_away
+                            total_bookie_prob_with_margin *= (p_away * (1 + margin_decimal_multi))
                         
                         valid_legs += 1
                     
                     if valid_legs > 0:
-                        fair_odds = 1 / total_fair_prob
-                        bookie_prob = total_fair_prob * (1 + margin_decimal)
-                        bookie_odds = 1 / bookie_prob
+                        fair_odds = 1 / total_fair_prob if total_fair_prob > 0 else 0
+                        bookie_odds = 1 / total_bookie_prob_with_margin if total_bookie_prob_with_margin > 0 else 0
                         
                         st.success(f"Calculation complete for {valid_legs} leg(s):")
                         
                         c1, c2 = st.columns(2)
                         c1.metric("Total Fair Odds", f"{fair_odds:.2f}")
-                        c2.metric(f"Bookie Odds (@ {margin}%)", f"{bookie_odds:.2f}")
+                        c2.metric(f"Bookie Odds (@ {margin_multi}%)", f"{bookie_odds:.2f}")
                         st.metric("Implied Fair Probability", f"{total_fair_prob:.2%}")
                         
                     else:
