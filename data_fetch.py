@@ -5,6 +5,7 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter, Retry
+from requests.exceptions import ProxyError
 
 BASE_URL = "https://www.soccer-rating.com/"
 BASE_HEADERS = {
@@ -16,9 +17,19 @@ BASE_HEADERS = {
 
 logger = logging.getLogger(__name__)
 
-_session = requests.Session()
 _retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-_session.mount("https://", HTTPAdapter(max_retries=_retries))
+
+
+def _build_session(*, trust_env: bool) -> requests.Session:
+    session = requests.Session()
+    session.trust_env = trust_env
+    session.mount("https://", HTTPAdapter(max_retries=_retries))
+    session.mount("http://", HTTPAdapter(max_retries=_retries))
+    return session
+
+
+_session = _build_session(trust_env=True)
+_session_no_proxy = _build_session(trust_env=False)
 
 
 def build_league_urls(country: str, league: str) -> dict:
@@ -42,7 +53,11 @@ def fetch_soup(url: str, referer: Optional[str] = None, timeout: int = 15) -> Be
     """Fetch a URL using the shared session and return a BeautifulSoup parser."""
     headers = BASE_HEADERS.copy()
     headers["Referer"] = referer or BASE_URL
-    response = _session.get(url, headers=headers, timeout=timeout)
+    try:
+        response = _session.get(url, headers=headers, timeout=timeout)
+    except ProxyError:
+        logger.warning("Proxy request failed, retrying without environment proxies.")
+        response = _session_no_proxy.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
     return BeautifulSoup(response.text, "lxml")
 
