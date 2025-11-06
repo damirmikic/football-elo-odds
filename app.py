@@ -287,8 +287,18 @@ def fetch_table_data(country, league):
 
 @st.cache_data(ttl=3600)
 def fetch_soccerstats_data():
-    """Fetches league-wide stats (Draw %, Avg Goals) from soccerstats.com."""
+    """Fetches league-wide stats from soccerstats.com."""
     url = "https://www.soccerstats.com/leagues.asp"
+    
+    def clean_val(text, is_percent=False):
+        text = text.strip().replace('%', '')
+        if text == '-': return None
+        try:
+            val = float(text)
+            return val / 100.0 if is_percent else val
+        except ValueError:
+            return None
+
     try:
         response = requests.get(url, headers=BASE_HEADERS, timeout=10)
         response.raise_for_status()
@@ -302,20 +312,27 @@ def fetch_soccerstats_data():
         rows = table.find_all('tr')
         
         for row in rows[1:]: # Skip header row
-            cols = row.find_all('td')
-            if len(cols) == 14: # Ensure it's a data row
+            cols_html = row.find_all('td')
+            if len(cols_html) == 14: # Ensure it's a data row
                 try:
-                    league_full = cols[0].get_text(strip=True)
+                    cols = [c.get_text(strip=True) for c in cols_html]
+                    league_full = cols[0]
                     country, league_name = league_full.split(' - ', 1)
                     
-                    draw_pct = cols[5].get_text(strip=True).replace('%', '')
-                    avg_goals = cols[7].get_text(strip=True)
-
                     data.append({
                         "Country": country.strip(),
                         "League": league_name.strip(),
-                        "Draw%": float(draw_pct) / 100.0 if draw_pct != '-' else None,
-                        "AvgGoals": float(avg_goals) if avg_goals != '-' else None
+                        "GP": clean_val(cols[3]),
+                        "HomeW%": clean_val(cols[4], is_percent=True),
+                        "Draw%": clean_val(cols[5], is_percent=True),
+                        "AwayW%": clean_val(cols[6], is_percent=True),
+                        "AvgGoals": clean_val(cols[7]),
+                        "AvgHG": clean_val(cols[8]),
+                        "AvgAG": clean_val(cols[9]),
+                        "Over1.5%": clean_val(cols[10], is_percent=True),
+                        "Over2.5%": clean_val(cols[11], is_percent=True),
+                        "Over3.5%": clean_val(cols[12], is_percent=True),
+                        "BTS%": clean_val(cols[13], is_percent=True),
                     })
                 except (ValueError, IndexError):
                     continue # Skip rows that don't parse correctly
@@ -440,14 +457,14 @@ def fetch_team_page_data(team_name, team_url):
     except Exception:
         return None, None, None
 
-def get_league_suggested_draw_rate(selected_country, selected_league):
+def get_league_stats_row(selected_country, selected_league):
     """
-    Finds the actual draw rate for the selected league from the scraped soccerstats data.
+    Finds the matching league stats row from the soccerstats DataFrame.
     """
     try:
         stats_df = st.session_state.get("soccer_stats")
         if not isinstance(stats_df, pd.DataFrame):
-            return DEFAULT_DRAW_RATE
+            return None
 
         # Find the league index from our own mapping
         league_list = all_leagues[selected_country]
@@ -475,20 +492,30 @@ def get_league_suggested_draw_rate(selected_country, selected_league):
             country_leagues = country_leagues[~country_leagues['League'].str.contains("Women", case=False, na=False)]
 
         if country_leagues.empty:
-            return DEFAULT_DRAW_RATE
+            return None
 
         # Try to pick the league by its index
         if league_index < len(country_leagues):
-            draw_rate = country_leagues.iloc[league_index]["Draw%"]
+            return country_leagues.iloc[league_index]
         else:
             # Fallback to the primary league for that country
-            draw_rate = country_leagues.iloc[0]["Draw%"]
-
-        return draw_rate if pd.notna(draw_rate) else DEFAULT_DRAW_RATE
-
+            return country_leagues.iloc[0]
+            
     except Exception:
         # Broad fallback in case of any error
+        return None
+
+def get_league_suggested_draw_rate(selected_country, selected_league):
+    """
+    Gets the 'Draw%' value from the soccerstats row.
+    """
+    stats_row = get_league_stats_row(selected_country, selected_league)
+    
+    if stats_row is not None and pd.notna(stats_row["Draw%"]):
+        return stats_row["Draw%"]
+    else:
         return DEFAULT_DRAW_RATE
+
 
 def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob):
     """
@@ -593,6 +620,27 @@ def probs_to_odds(probs):
 
 # --- UI Helper Functions ---
 
+def display_league_stats(stats_row):
+    """Renders the soccerstats data in a compact, multi-column format."""
+    if stats_row is None or stats_row.empty:
+        st.info("Detailed league stats from SoccerStats.com are not available for this selection.")
+        return
+    
+    st.markdown(f"##### {stats_row['League']} (GP: {int(stats_row.get('GP', 0))})")
+    
+    # Row 1: Win/Draw/Loss
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Home Win", f"{stats_row.get('HomeW%', 0):.1%}")
+    c2.metric("Draw", f"{stats_row.get('Draw%', 0):.1%}")
+    c3.metric("Away Win", f"{stats_row.get('AwayW%', 0):.1%}")
+
+    # Row 2: Goal Averages
+    c4, c5, c6 = st.columns(3)
+    c4.metric("Avg Goals", f"{stats_row.get('AvgGoals', 0):.2f}")
+    c5.metric("Avg HG", f"{stats_row.get('AvgHG', 0):.2f}")
+    c6.metric("Avg AG", f"{stats_row.get('AvgAG', 0):.2f}")
+    # Removed BTS and Over 2.5% as requested
+
 def display_team_stats(team_name, table, column):
     """Displays key league stats for a team in a given column."""
     try:
@@ -661,8 +709,8 @@ def display_squad(team_name, squad_key, lineup_key):
     for p in squad_data:
         player_cols = st.columns([4, 2, 2])
         player_cols[0].write(f"**{p['name']}**" if p['name'] in starter_names else p['name'])
-        player_cols[1].write(str(p['age']))
-        player_cols[2].write(f"**{p['rating']}**")
+                player_cols[1].write(str(p['age']))
+                player_cols[2].write(f"**{p['rating']}**")
 
 def display_last_matches(team_name, matches_key):
     """Displays the last 5 league matches for a team."""
@@ -780,6 +828,9 @@ if st.session_state.get('data_fetched', False):
     
     # --- Main App Tabs ---
     tab1, tab2 = st.tabs(["Single Match Analysis", "Multi-Match Calculator"])
+    
+    # Get the league stats row once
+    league_stats_row = get_league_stats_row(selected_country, selected_league)
 
     with tab1:
         with st.expander("⚽ Matchup Selection", expanded=True):
@@ -849,7 +900,6 @@ if st.session_state.get('data_fetched', False):
             dnb_c1.markdown(f"<div class='card'><div class='card-title'>Home (DNB)</div><div class='card-value'>{odds_dnb[0]:.2f}</div></div>", unsafe_allow_html=True)
             dnb_c2.markdown(f"<div class='card'><div class='card-title'>Away (DNB)</div><div class='card-value'>{odds_dnb[1]:.2f}</div></div>", unsafe_allow_html=True)
 
-
         with st.expander("📋 Interactive Lineups", expanded=False):
             col1, col2 = st.columns(2)
             with col1: display_interactive_lineup(f"{home_team_name} (Home)", "home_lineup")
@@ -865,7 +915,10 @@ if st.session_state.get('data_fetched', False):
             with match_col1: display_last_matches(f"{home_team_name} (Home)", "home_matches")
             with match_col2: display_last_matches(f"{away_team_name} (Away)", "away_matches")
 
-        with st.expander("📊 League Statistics", expanded=False):
+        with st.expander("📊 League-Wide Stats (from SoccerStats)", expanded=False):
+            display_league_stats(league_stats_row)
+
+        with st.expander("📈 Team League Stats (from Soccer-Rating)", expanded=False):
             league_table = st.session_state.get("league_table")
             if isinstance(league_table, pd.DataFrame):
                 stat_col1, stat_col2 = st.columns(2)
@@ -876,6 +929,9 @@ if st.session_state.get('data_fetched', False):
     
     with tab2:
         st.subheader("League Fixture Odds Calculator")
+        
+        with st.expander("📊 League-Wide Stats (from SoccerStats)", expanded=False):
+            display_league_stats(league_stats_row)
         
         margin_multi = st.slider("Apply Bookmaker's Margin (%):", 0.0, 15.0, 5.0, 0.5, format="%.1f%%", key="multi_margin")
         st.markdown("---")
