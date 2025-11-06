@@ -198,7 +198,6 @@ def load_css(file_name):
         st.error(f"CSS file '{file_name}' not found. Please add it to the app directory.")
 
 def fetch_with_headers(url, referer=None, timeout=15):
-# ... (rest of function) ...
     headers = BASE_HEADERS.copy()
     headers["Referer"] = referer or "https://www.soccer-rating.com/"
     response = requests.get(url, headers=headers, timeout=timeout)
@@ -220,6 +219,57 @@ def normalize_team_name(name):
     return ' '.join(name.split())
 
 # --- Data Fetching and Parsing Functions ---
+
+@st.cache_data(ttl=3600)
+def fetch_soccerstats_data():
+    """
+    Fetches and parses league-wide statistics (Draw %, Avg Goals)
+    from soccerstats.com to be used for better draw probability estimates.
+    """
+    url = "https://www.soccerstats.com/leagues.asp"
+    try:
+        response = fetch_with_headers(url, referer="https://www.soccerstats.com/")
+        soup = BeautifulSoup(response.text, "lxml")
+        
+        table = soup.find("table", id="btable")
+        if not table:
+            return None
+
+        league_stats = []
+        for row in table.find("tbody").find_all("tr"):
+            cols = row.find_all("td")
+            if len(cols) < 8:
+                continue
+            
+            try:
+                # Clean and split league name
+                league_full = cols[0].get_text(strip=True)
+                if ' - ' not in league_full:
+                    continue
+                country, league_name = league_full.split(' - ', 1)
+                
+                # Clean and convert draw string
+                draw_str = cols[5].get_text(strip=True)
+                draw_pct = float(draw_str.replace('%', ''))
+                
+                # Clean and convert goals string
+                goals_str = cols[7].get_text(strip=True)
+                avg_goals = float(goals_str)
+
+                league_stats.append({
+                    "Country": country,
+                    "LeagueName": league_name,
+                    "Draws": draw_pct,
+                    "AvgGoals": avg_goals
+                })
+            except (ValueError, TypeError):
+                # Skip rows with invalid data (e.g., '-', or non-numeric)
+                continue
+        
+        return pd.DataFrame(league_stats)
+    except Exception:
+        return None
+
 
 @st.cache_data(ttl=3600)
 def fetch_table_data(country, league):
@@ -400,8 +450,50 @@ def fetch_team_page_data(team_name, team_url):
     except Exception:
         return None, None, None
 
-def get_league_suggested_draw_rate(league_table):
-# ... (rest of function) ...
+def get_league_suggested_draw_rate(selected_country, selected_league):
+    """
+    Tries to find the exact league draw rate from the scraped soccerstats.com data.
+    It maps the selected league (e.g., "England", "UK2") to the corresponding
+    entry in the soccerstats DataFrame.
+    """
+    DEFAULT_DRAW_RATE = 0.27
+    try:
+        soccer_stats_df = st.session_state.get("soccer_stats")
+        if soccer_stats_df is None or soccer_stats_df.empty:
+            return DEFAULT_DRAW_RATE
+
+        # Get the list of leagues for the selected country from our app's dictionary
+        league_list = all_leagues[selected_country]
+        
+        # Normalize country name for matching (e.g., "USA-Women" -> "USA")
+        stats_country_name = selected_country.split('-')[0]
+
+        # Filter stats by the matched country name
+        leagues_for_country_stats = soccer_stats_df[
+            soccer_stats_df['Country'].str.contains(stats_country_name, case=False)
+        ].reset_index()
+
+        if leagues_for_country_stats.empty:
+            return DEFAULT_DRAW_RATE
+
+        # Find the index of the selected league (e.g., "UK1" is 0, "UK2" is 1)
+        league_index = league_list.index(selected_league)
+
+        # If we have a stat row corresponding to that index, use it
+        if league_index < len(leagues_for_country_stats):
+            matched_rate = leagues_for_country_stats.iloc[league_index]['Draws']
+            return matched_rate / 100.0  # Convert 30.0 to 0.30
+        else:
+            # Fallback: If we selected a lower league (e.g., UK5) that soccerstats
+            # doesn't list, just use the draw rate of the country's primary league.
+            return leagues_for_country_stats.iloc[0]['Draws'] / 100.0
+
+    except Exception:
+        # Broad fallback in case of any error
+        return DEFAULT_DRAW_RATE
+
+
+def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
     """
     Analyzes the league table to suggest a realistic draw rate.
     Returns a suggested draw probability based on league data.
@@ -554,18 +646,19 @@ if 'data_fetched' not in st.session_state: st.session_state['data_fetched'] = Fa
 if 'current_selection' not in st.session_state: st.session_state['current_selection'] = None
 
 def fetch_data_for_selection(country, league):
-# ... (rest of function) ...
     current_selection = f"{country}_{league}"
     if st.session_state.get('current_selection') != current_selection or not st.session_state.get('data_fetched', False):
         st.session_state['current_selection'] = current_selection
         with st.spinner(random.choice(SPINNER_MESSAGES)):
             home_table, away_table, league_table = fetch_table_data(country, league)
+            soccer_stats_df = fetch_soccerstats_data() # Fetch new stats
             
             if isinstance(home_table, pd.DataFrame) and not home_table.empty:
                 st.session_state.update({
                     "home_table": home_table,
                     "away_table": away_table,
                     "league_table": league_table,
+                    "soccer_stats": soccer_stats_df, # Store new stats
                     "data_fetched": True,
                     "last_refresh": time.time()
                 })
@@ -630,7 +723,8 @@ if st.session_state.get('data_fetched', False):
         st.caption(f"Ratings displayed are for the teams selected in the 'Single Match Analysis' tab.")
 
         st.markdown("---")
-        suggested_draw_rate = get_league_suggested_draw_rate(league_table)
+        # Updated to pass the selected league info
+        suggested_draw_rate = get_league_suggested_draw_rate(selected_country, selected_league)
         col_slider, col_info = st.columns([3, 1])
         
         draw_probability = col_slider.slider("Set Draw Probability:", 0.15, 0.45, suggested_draw_rate, 0.01, "%.2f", key="global_draw_prob")
