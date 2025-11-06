@@ -1,0 +1,391 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --primary:#0f766e;
+    --primary-dark:#0b4d4a;
+    --accent:#22c55e;
+    --text-main:#0f172a;
+    --muted:#5b7083;
+}
+
+html, body, [class*="css"]  {
+    font-family: 'Inter', sans-serif;
+}
+
+body {
+    background: radial-gradient(circle at 20% 20%, rgba(34,197,94,0.12), transparent 55%),
+                radial-gradient(circle at 80% 0%, rgba(59,130,246,0.14), transparent 50%),
+                linear-gradient(135deg, #f5f7fa 0%, #e2e8f0 100%);
+    color: var(--text-main);
+}
+
+.stApp {
+    background: transparent;
+    color: var(--text-main);
+}
+
+.main .block-container {
+    background: rgba(255, 255, 255, 0.82);
+    border-radius: 28px;
+    padding: 28px 36px 40px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+    border: 1px solid rgba(15, 118, 110, 0.08);
+    backdrop-filter: blur(10px);
+}
+
+@media (max-width: 992px) {
+    .main .block-container {
+        padding: 22px 20px 28px;
+        border-radius: 22px;
+    }
+}
+
+.stApp header { background: transparent; }
+
+section[data-testid="stSidebar"] {
+    background: rgba(15, 23, 42, 0.88);
+    color: #e2e8f0;
+    backdrop-filter: blur(16px);
+}
+
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h1 {
+    color: #f8fafc;
+}
+
+section[data-testid="stSidebar"] .stMarkdown p,
+section[data-testid="stSidebar"] label {
+    color: #cbd5f5;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stAlert"] {
+    background: #fef9c3;
+    border: 1px solid rgba(202, 138, 4, 0.35);
+    color: #713f12;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stAlert"] p,
+section[data-testid="stSidebar"] div[data-testid="stAlert"] span {
+    color: #713f12 !important;
+}
+
+.header {
+    text-align: center;
+    font-size: 40px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--primary-dark);
+}
+
+.subheader {
+    text-align: center;
+    color: var(--muted);
+    margin-bottom: 30px;
+    font-size: 16px;
+}
+
+.hero-card {
+    background: rgba(255, 255, 255, 0.82);
+    border-radius: 20px;
+    padding: 24px 28px;
+    box-shadow: 0 20px 45px rgba(15, 118, 110, 0.18);
+    border: 1px solid rgba(15, 118, 110, 0.08);
+    margin-bottom: 28px;
+}
+
+.hero-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--primary-dark);
+}
+
+.hero-subtitle {
+    color: var(--muted);
+    margin-top: 4px;
+    font-size: 14px;
+}
+
+.hero-meta {
+    margin-top: 16px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.hero-pill {
+    background: rgba(34, 197, 94, 0.14);
+    color: var(--primary-dark);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.card {
+    background: linear-gradient(135deg, rgba(15, 118, 110, 0.1), rgba(34, 197, 94, 0.08));
+    padding: 18px;
+    border-radius: 16px;
+    box-shadow: 0 18px 30px rgba(15, 23, 42, 0.08);
+    text-align: center;
+    border: 1px solid rgba(15, 118, 110, 0.14);
+}
+
+.card-title {
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+
+.card-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--primary-dark);
+}
+
+.player-table-header {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.odds-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.88em;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border-radius: 12px;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.odds-teams { flex-grow: 1; font-weight: 600; color: var(--text-main); }
+
+.odds-values {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    min-width: 120px;
+}
+
+.odds-value {
+    font-weight: 700;
+    color: var(--primary-dark);
+    text-align: center;
+}
+
+.odds-table-wrapper { margin-top: 10px; }
+
+.odds-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: rgba(255,255,255,0.92);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
+}
+
+.odds-table caption {
+    background: linear-gradient(120deg, rgba(15, 118, 110, 0.92), rgba(34, 197, 94, 0.82));
+    color: #f8fafc;
+    font-weight: 700;
+    padding: 12px 18px;
+    text-align: center;
+    font-size: 14px;
+    letter-spacing: 0.05em;
+}
+
+.odds-table thead th {
+    background-color: rgba(15, 118, 110, 0.12);
+    color: var(--primary-dark);
+    padding: 12px 8px;
+    text-align: center;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.odds-table tbody td {
+    padding: 12px 10px;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(15, 118, 110, 0.08);
+    vertical-align: middle;
+}
+
+.odds-table tbody tr:nth-child(even) { background-color: rgba(241, 245, 249, 0.7); }
+
+.odds-table .teams-cell { font-weight: 600; color: var(--text-main); }
+
+.odds-table .league-cell { text-align: center; font-weight: 600; color: var(--primary-dark); }
+
+.odds-table .odds-cell { text-align: center; font-weight: 600; color: var(--text-main); }
+
+.odds-table .odds-cell.best { color: var(--primary); font-weight: 700; }
+
+.vs-cell { text-align: center; }
+
+.vs-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(15, 118, 110, 0.14);
+    color: var(--primary-dark);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+div[data-testid="stAlert"] {
+    color: var(--text-main);
+}
+
+div[data-testid="stAlert"] p,
+div[data-testid="stAlert"] span {
+    color: var(--text-main) !important;
+}
+
+.main div[data-testid="stExpander"] {
+    border-radius: 18px;
+    border: 1px solid rgba(15, 118, 110, 0.12);
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+    background: rgba(255,255,255,0.9);
+}
+
+.main div[data-testid="stExpander"] > div:first-child {
+    border-radius: 18px;
+    background: rgba(15, 118, 110, 0.1);
+}
+
+.main div[data-testid="stExpander"] label {
+    color: var(--primary-dark) !important;
+    font-weight: 600;
+}
+
+.main div[data-testid="stExpander"] p,
+.main div[data-testid="stExpander"] span,
+.main div[data-testid="stExpander"] li,
+.main div[data-testid="stExpander"] h1,
+.main div[data-testid="stExpander"] h2,
+.main div[data-testid="stExpander"] h3,
+.main div[data-testid="stExpander"] h4,
+.main div[data-testid="stExpander"] h5,
+.main div[data-testid="stExpander"] h6 {
+    color: var(--text-main) !important;
+}
+
+.main div[data-testid="stExpander"] div[data-testid="stMarkdown"] p,
+.main div[data-testid="stExpander"] div[data-testid="stMarkdown"] li,
+.main div[data-testid="stExpander"] div[data-testid="stMarkdown"] span {
+    color: var(--text-main) !important;
+}
+
+div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+    color: var(--primary-dark) !important;
+}
+
+div[data-testid="stMetric"] div[data-testid="stMetricLabel"] {
+    color: var(--text-main) !important;
+    font-weight: 600;
+}
+
+div[data-testid="stMetric"] div[data-testid="stMetricDelta"] {
+    color: var(--accent) !important;
+}
+
+.main div[data-testid="stExpander"] pre {
+    color: var(--text-main);
+    background: rgba(15, 118, 110, 0.08);
+    border-radius: 14px;
+    padding: 10px 14px;
+    font-weight: 600;
+    border: 1px solid rgba(15, 118, 110, 0.12);
+}
+
+section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(15, 23, 42, 0.78);
+    box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.18);
+    color: #e2e8f0;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stExpander"] > div:first-child {
+    border-radius: 18px;
+    background: rgba(15, 23, 42, 0.62);
+}
+
+section[data-testid="stSidebar"] div[data-testid="stExpander"] button {
+    color: #f8fafc !important;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stExpander"] p,
+section[data-testid="stSidebar"] div[data-testid="stExpander"] li,
+section[data-testid="stSidebar"] div[data-testid="stExpander"] span,
+section[data-testid="stSidebar"] div[data-testid="stExpander"] label {
+    color: #e2e8f0 !important;
+}
+
+.stTabs [data-baseweb="tab"] {
+    font-weight: 600;
+    color: var(--primary-dark);
+}
+
+.sidebar-odds-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    color: #94a3b8;
+}
+
+.pill-muted {
+    background: rgba(148, 163, 184, 0.18);
+    color: #e2e8f0;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+}
+
+.match-line {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 14px;
+    background: rgba(15, 118, 110, 0.08);
+    border: 1px solid rgba(15, 118, 110, 0.14);
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.match-line + .match-line {
+    margin-top: 10px;
+}
+
+.match-date {
+    color: var(--primary-dark);
+    font-weight: 700;
+    min-width: 70px;
+}
+
+.match-opponent {
+    flex: 1;
+}
+
+.match-result {
+    background: rgba(34, 197, 94, 0.18);
+    color: var(--primary-dark);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
