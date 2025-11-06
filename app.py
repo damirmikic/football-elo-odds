@@ -494,28 +494,8 @@ def get_league_suggested_draw_rate(selected_country, selected_league):
 
 #
 # REMOVED: This was a bad copy-paste of the function above
+# (The entire try...except block that was here is now gone)
 #
-# def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
-#     """
-#     Analyzes the league table to suggest a realistic draw rate.
-#     Returns a suggested draw probability based on league data.
-#     """
-#     if not isinstance(league_table, pd.DataFrame) or league_table.empty:
-    try:
-        total_matches, total_draws = 0, 0
-        for _, row in league_table.iterrows():
-            matches_played, points = int(row['M']), int(row['P.'])
-            if ':' in str(row['Goals']):
-                max_wins = min(points // 3, matches_played)
-                draws = min(points - (max_wins * 3), matches_played - max_wins)
-                total_matches += matches_played
-                total_draws += draws
-        
-        league_draw_rate = total_draws / total_matches if total_matches > 0 else 0.27
-        return max(0.20, min(0.35, league_draw_rate))
-    except Exception:
-#     except Exception:
-#         return 0.27
 
 def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
     """
