@@ -77,9 +77,6 @@ SOCCERSTATS_DATA = {
     "Egypt - Premier League": {"GP": 127, "HomeW%": 0.31, "Draw%": 0.39, "AwayW%": 0.29, "AvgGoals": 1.86, "AvgHG": 0.94, "AvgAG": 0.92},
     "England - Premier League": {"GP": 100, "HomeW%": 0.51, "Draw%": 0.21, "AwayW%": 0.28, "AvgGoals": 2.68, "AvgHG": 1.55, "AvgAG": 1.13},
     "England - Championship": {"GP": 167, "HomeW%": 0.39, "Draw%": 0.29, "AwayW%": 0.32, "AvgGoals": 2.49, "AvgHG": 1.28, "AvgAG": 1.20},
-Methods:
-
-Fix the code in the file.
     "England - League One": {"GP": 164, "HomeW%": 0.48, "Draw%": 0.22, "AwayW%": 0.30, "AvgGoals": 2.43, "AvgHG": 1.40, "AvgAG": 1.03},
     "England - League Two": {"GP": 168, "HomeW%": 0.42, "Draw%": 0.24, "AwayW%": 0.33, "AvgGoals": 2.63, "AvgHG": 1.43, "AvgAG": 1.19},
     "England - National League": {"GP": 199, "HomeW%": 0.41, "Draw%": 0.27, "AwayW%": 0.32, "AvgGoals": 2.75, "AvgHG": 1.52, "AvgAG": 1.23},
