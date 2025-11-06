@@ -77,6 +77,9 @@ SOCCERSTATS_DATA = {
     "Egypt - Premier League": {"GP": 127, "HomeW%": 0.31, "Draw%": 0.39, "AwayW%": 0.29, "AvgGoals": 1.86, "AvgHG": 0.94, "AvgAG": 0.92},
     "England - Premier League": {"GP": 100, "HomeW%": 0.51, "Draw%": 0.21, "AwayW%": 0.28, "AvgGoals": 2.68, "AvgHG": 1.55, "AvgAG": 1.13},
     "England - Championship": {"GP": 167, "HomeW%": 0.39, "Draw%": 0.29, "AwayW%": 0.32, "AvgGoals": 2.49, "AvgHG": 1.28, "AvgAG": 1.20},
+Methods:
+
+Fix the code in the file.
     "England - League One": {"GP": 164, "HomeW%": 0.48, "Draw%": 0.22, "AwayW%": 0.30, "AvgGoals": 2.43, "AvgHG": 1.40, "AvgAG": 1.03},
     "England - League Two": {"GP": 168, "HomeW%": 0.42, "Draw%": 0.24, "AwayW%": 0.33, "AvgGoals": 2.63, "AvgHG": 1.43, "AvgAG": 1.19},
     "England - National League": {"GP": 199, "HomeW%": 0.41, "Draw%": 0.27, "AwayW%": 0.32, "AvgGoals": 2.75, "AvgHG": 1.52, "AvgAG": 1.23},
@@ -448,6 +451,166 @@ LEAGUE_STATS_MAP = {
     ("Uruguay", "UY2"): "Uruguay - Liga AUF Uruguaya - Clausura", # Guessed
     ("USA", "US1"): "USA - MLS",
     ("USA", "US2"): "USA - USL Championship",
+    ("USA", "US3"): "USA - USL League One",
+    ("USA-Women", "UV1"): "USA - NWSL",
+    ("USA-Women", "UV2"): "USA - USL Super League",
+    ("Venezuela", "VE1"): "Venezuela - Liga FUTVE - Apertura",
+    ("Vietnam", "VN1"): "Vietnam - V League",
+    ("Vietnam", "VN2"): "Vietnam - National League Women", # Guessed
+    ("Wales", "WL1"): "Wales - Cymru Premier",
+}
+
+
+# Combined dictionary for both Men's and Women's leagues
+leagues_data = {
+    "Men's": {
+        "England": ["UK1", "UK2", "UK3", "UK4", "UK5", "UK6N", "UK6S", "UK7N"],
+        "Germany": ["DE1", "DE2", "DE3", "DE4SW", "DE4W", "DE4N", "DE4NO", "DE4B"],
+        "Italy": ["IT1", "IT2", "IT3C", "IT3B", "IT3A"],
+        "Spain": ["ES1", "ES2", "ES3G1", "ES3G2", "ES3G3", "ES3G4", "ES3G5"],
+        "France": ["FR1", "FR2", "FR3"],
+        "Sweden": ["SW1", "SW2", "SW3S", "SW3N"],
+        "Netherlands": ["NL1", "NL2", "NL3"],
+        "Russia": ["RU1", "RU2"],
+        "Portugal": ["PT1", "PT2"],
+        "Austria": ["AT1", "AT2", "AT3O", "AT3T", "AT3M", "AT3W", "AT3V"],
+        "Denmark": ["DK1", "DK2", "DK3", "DK4"],
+        "Greece": ["GR1", "GR2"],
+        "Norway": ["NO1", "NO2", "NO3G1", "NO3G2"],
+        "Czech Republic": ["CZ1", "CZ2"],
+        "Turkey": ["TU1", "TU2", "TU3B", "TU3K"],
+        "Belgium": ["BE1", "BE2"],
+        "Scotland": ["SC1", "SC2", "SC3", "SC4"],
+        "Switzerland": ["CH1", "CH2"],
+        "Finland": ["FI1", "FI2", "FI3A", "FI3B", "FI3C"],
+        "Ukraine": ["UA1", "UA2"],
+        "Romania": ["RO1", "RO2"],
+        "Poland": ["PL1", "PL2", "PL3"],
+        "Croatia": ["HR1", "HR2"],
+        "Belarus": ["BY1", "BY2"],
+        "Israel": ["IL1", "IL2"],
+        "Iceland": ["IS1", "IS2", "IS3", "IS4"],
+        "Cyprus": ["CY1", "CY2"],
+        "Serbia": ["CS1", "CS2"],
+        "Bulgaria": ["BG1", "BG2"],
+        "Slovakia": ["SK1", "SK2"],
+        "Hungary": ["HU1", "HU2"],
+        "Kazakhstan": ["KZ1", "KZ2"],
+        "Bosnia-Herzegovina": ["BA1"],
+        "Slovenia": ["SI1", "SI2"],
+        "Azerbaijan": ["AZ1"],
+        "Ireland": ["IR1", "IR2"],
+        "Latvia": ["LA1", "LA2"],
+        "Georgia": ["GE1", "GE2"],
+        "Kosovo": ["XK1"],
+        "Albania": ["AL1"],
+        "Lithuania": ["LT1", "LT2"],
+        "North-Macedonia": ["MK1"],
+        "Armenia": ["AM1"],
+        "Estonia": ["EE1", "EE2"],
+        "Northern-Ireland": ["NI1", "NI2"],
+        "Malta": ["MT1"],
+        "Luxembourg": ["LU1"],
+        "Wales": ["WL1"],
+        "Montenegro": ["MN1"],
+        "Moldova": ["MD1"],
+        "Färöer": ["FA1"],
+        "Gibraltar": ["GI1"],
+        "Andorra": ["AD1"],
+        "San-Marino": ["SM1"],
+        "Brazil": ["BR1", "BR2", "BR3", "BRC", "BRGA"],
+        "Mexico": ["MX1", "MX2"],
+        "Argentina": ["AR1", "AR2", "AR3F", "AR5", "AR3", "AR4"],
+        "USA": ["US1", "US2", "US3"],
+        "Colombia": ["CO1", "CO2"],
+        "Ecuador": ["EC1", "EC2"],
+        "Paraguay": ["PY1", "PY2"],
+        "Chile": ["CL1", "CL2"],
+        "Uruguay": ["UY1", "UY2"],
+        "Costa-Rica": ["CR1", "CR2"],
+        "Bolivia": ["BO1"],
+        "Guatemala": ["GT1", "GT2"],
+        "Dominican-Rep.": ["DO1"],
+        "Honduras": ["HN1"],
+        "Venezuela": ["VE1"],
+        "Peru": ["PE1", "PE2"],
+        "Panama": ["PA1"],
+        "El-Salvador": ["SV1"],
+        "Jamaica": ["JM1"],
+        "Nicaragua": ["NC1"],
+        "Canada": ["CA1"],
+        "Haiti": ["HT1"],
+        "Japan": ["JP1", "JP2", "JP3"],
+        "South-Korea": ["KR1", "KR2", "KR3"],
+        "China": ["CN1", "CN2", "CN3"],
+        "Iran": ["IA1", "IA2"],
+        "Australia": ["AU1", "AU2V", "AU2NSW", "AU2Q", "AU2S", "AU2W", "AU3V", "AU3NSW", "AU2T", "AU2NOR", "AU3Q", "AU2CAP", "AU3S"],
+        "Saudi-Arabia": ["SA1", "SA2"],
+        "Thailand": ["TH1", "TH2"],
+        "Qatar": ["QA1", "QA2"],
+        "United Arab Emirates": ["AE1", "AE2"],
+        "Indonesia": ["ID1", "ID2"],
+        "Jordan": ["JO1"],
+        "Syria": ["SY1"],
+        "Uzbekistan": ["UZ1"],
+        "Malaysia": ["MY1", "MY2"],
+        "Vietnam": ["VN1", "VN2"],
+        "Iraq": ["IQ1"],
+        "Kuwait": ["KW1"],
+        "Bahrain": ["BH1"],
+        "Myanmar": ["MM1"],
+        "Palestine": ["PS1"],
+        "India": ["IN1", "IN2"],
+        "New Zealand": ["NZ1"],
+        "Hong Kong": ["HK1", "HK2"],
+        "Oman": ["OM1"],
+        "Taiwan": ["TW1"],
+        "Tajikistan": ["TJ1"],
+        "Turkmenistan": ["TM1"],
+        "Lebanon": ["LB1"],
+        "Bangladesh": ["BD1"],
+        "Singapore": ["SG1"],
+        "Cambodia": ["KH1"],
+        "Kyrgyzstan": ["KG1"],
+        "Egypt": ["EG1", "EG2"],
+        "Algeria": ["DZ1", "DZ2"],
+        "Tunisia": ["TN1", "TN2"],
+        "Morocco": ["MA1", "MA2"],
+        "South-Africa": ["ZA1", "ZA2"],
+        "Kenya": ["KE1", "KE2"],
+        "Zambia": ["ZM1"],
+        "Ghana": ["GH1"],
+        "Nigeria": ["NG1"],
+        "Uganda": ["UG1"],
+        "Burundi": ["BI1"],
+        "Rwanda": ["RW1"],
+        "Cameroon": ["CM1"],
+        "Tanzania": ["TZ1"],
+        "Gambia": ["GM1"],
+        "Sudan": ["SD1"]
+    },
+    "Women's": {
+        "England-Women": ["UW1", "UW2"],
+        "Spain-Women": ["EW1", "EW2"],
+        "Germany-Women": ["GW1", "GW2"],
+        "Brazil-Women": ["FB1"],
+        "France-Women": ["FF1"],
+        "Italy-Women": ["IF1"],
+        "Sweden-Women": ["SX1","SX2"],
+        "Argentina-Women": ["AP1"],
+        "Norway-Women": ["NW1", "NW2"],
+        "Iceland-Women": ["IW1", "IW2"],
+        "Scotland-Women": ["SP1"],
+        "Netherlands-Women": ["NV1"],
+        "Denmark-Women": ["DW1"],
+        "Belgium-Women": ["BW1"],
+        "Japan-Women": ["JW1", "JW2"],
+        "Finland-Women": ["FW1"],
+        "Mexico-Women": ["MF1"],
+        "Czech-Republic-Women": ["LZ1"],
+        "Israel-Women": ["IJ1"],
+        "USA-Women": ["UV1", "UV2"],
+        "Australia-Women": ["AW1"],
         "South-Korea-Women": ["KX1"]
     }
 }
@@ -687,21 +850,22 @@ def get_league_stats(country_key, league_code):
     if league_name:
         stats = SOCCERSTATS_DATA.get(league_name)
         if stats:
-            # Convert percentages to floats
+            # Add league name to the dict for display
             stats_processed = stats.copy()
-            stats_processed['HomeW%'] = safe_float(stats.get('HomeW%'), 0.0)
-            stats_processed['Draw%'] = safe_float(stats.get('Draw%'), 0.0)
-            stats_processed['AwayW%'] = safe_float(stats.get('AwayW%'), 0.0)
+            stats_processed["League"] = league_name
             return stats_processed
     
     # Fallback if no specific league map is found
     # Try to find the primary league for the country
-    primary_league_code = leagues_data.get(country_key, {}).get(next(iter(leagues_data.get(country_key, {}))), [None])[0]
-    if primary_league_code:
+    primary_league_code_key = next(iter(leagues_data.get(country_key, {})), None)
+    if primary_league_code_key:
+        primary_league_code = leagues_data[country_key][primary_league_code_key][0]
         map_key = (country_key, primary_league_code)
         league_name = LEAGUE_STATS_MAP.get(map_key)
         if league_name and SOCCERSTATS_DATA.get(league_name):
-            return SOCCERSTATS_DATA.get(league_name)
+            stats = SOCCERSTATS_DATA.get(league_name)
+            stats["League"] = league_name
+            return stats
 
     return None
 
@@ -749,45 +913,14 @@ def apply_margin(probabilities, margin_percent):
     target_overround = 1 + (margin_percent / 100.0)
     
     # Handle potential edge case where probabilities don't sum to 1
-    # This shouldn't happen with our logic, but good to normalize
     total_prob = sum(probabilities)
     normalized_probs = [p / total_prob for p in probabilities]
 
-    # Simple proportional scaling
-    # We find a scaling factor 'k' such that sum(k * p_i) = target_overround
-    # This simplifies to k = target_overround / sum(p_i)
-    # Since sum(p_i) is 1, k = target_overround
-    
-    # No, that's wrong. We need to adjust the probabilities *before* inverting.
-    # The odds are 1/p'. The sum of inverse odds is the overround.
-    # sum(1/p_i') = target_overround
-    # Let p_i' = p_i / k (this is multiplicative scaling, not proportional)
-    # sum(k / p_i) = target_overround
-    
-    # Let's use the standard method:
-    # p_i' = p_i * target_overround
+    # Standard method: p_i' = p_i * target_overround
     # This scales the sum of probabilities to the target overround.
-    
     adjusted_probs = [p * target_overround for p in normalized_probs]
     
-    # Re-normalize just in case
-    total_adjusted_prob = sum(adjusted_probs)
-    if total_adjusted_prob == 0:
-        return [0] * len(probabilities)
-        
-    final_probs = [p / total_adjusted_prob for p in adjusted_probs]
-    
-    # Calculate odds
-    odds = [1 / p if p > 0 else 0 for p in final_probs]
-    
-    # Let's re-verify the logic.
-    # If p = [0.5, 0.3, 0.2] and margin = 5% (target = 1.05)
-    # p_adj = [0.5 * 1.05, 0.3 * 1.05, 0.2 * 1.05] = [0.525, 0.315, 0.21]
-    # sum(p_adj) = 1.05. This is correct.
-    # odds = [1/0.525, 1/0.315, 1/0.21] = [1.905, 3.175, 4.762]
-    # sum(1/odds) = 0.525 + 0.315 + 0.21 = 1.05.
-    # This is the correct method.
-    
+    # Odds are the inverse of these adjusted probabilities
     return [1 / p if p > 0 else 0 for p in adjusted_probs]
 
 
