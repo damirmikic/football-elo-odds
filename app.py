@@ -448,14 +448,15 @@ LEAGUE_STATS_MAP = {
     ("Uruguay", "UY2"): "Uruguay - Liga AUF Uruguaya - Clausura", # Guessed
     ("USA", "US1"): "USA - MLS",
     ("USA", "US2"): "USA - USL Championship",
-    ("USA", "US3"): "USA - USL League One",
-    ("USA-Women", "UV1"): "USA - NWSL",
-    ("USA-Women", "UV2"): "USA - USL Super League",
-    ("Venezuela", "VE1"): "Venezuela - Liga FUTVE - Apertura",
-    ("Vietnam", "VN1"): "Vietnam - V League",
-    ("Vietnam", "VN2"): "Vietnam - National League Women", # Guessed
-    ("Wales", "WL1"): "Wales - Cymru Premier",
+        "South-Korea-Women": ["KX1"]
+    }
 }
+
+# Combine Men's and Women's league data into a single dictionary
+all_leagues = {**leagues_data["Men's"], **leagues_data["Women's"]}
+# Sort the combined list of countries/leagues alphabetically
+sorted_countries = sorted(all_leagues.keys())
+
 
 # --- Utility Functions ---
 
