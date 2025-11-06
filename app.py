@@ -252,7 +252,9 @@ def fetch_table_data(country, league):
                 if not team_link or not team_link.has_attr('href'):
                     continue
                 team_url = team_link['href']
-                name_from_url = team_url.split('/')[1].replace('-', ' ') if '/' in team_url else team_link.get_text(strip=True)
+                team_name_text = team_link.get_text(strip=True)
+                team_slug = team_url.strip('/').split('/')[-1] if team_url else ""
+                name_from_url = team_name_text or team_slug.replace('-', ' ')
                 rating_text = cols[4].get_text(strip=True)
                 try:
                     rating = float(rating_text)
