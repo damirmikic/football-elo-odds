@@ -492,15 +492,15 @@ def get_league_suggested_draw_rate(selected_country, selected_league):
         # Broad fallback in case of any error
         return DEFAULT_DRAW_RATE
 
-
-def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
-    """
-    Analyzes the league table to suggest a realistic draw rate.
-    Returns a suggested draw probability based on league data.
-    """
-    if not isinstance(league_table, pd.DataFrame) or league_table.empty:
-        return 0.27
-    
+#
+# REMOVED: This was a bad copy-paste of the function above
+#
+# def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
+#     """
+#     Analyzes the league table to suggest a realistic draw rate.
+#     Returns a suggested draw probability based on league data.
+#     """
+#     if not isinstance(league_table, pd.DataFrame) or league_table.empty:
     try:
         total_matches, total_draws = 0, 0
         for _, row in league_table.iterrows():
@@ -514,10 +514,10 @@ def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
         league_draw_rate = total_draws / total_matches if total_matches > 0 else 0.27
         return max(0.20, min(0.35, league_draw_rate))
     except Exception:
-        return 0.27
+#     except Exception:
+#         return 0.27
 
 def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
-# ... (rest of function) ...
     """
     Calculates home, draw, and away probabilities with user-specified draw rate.
     """
@@ -711,8 +711,22 @@ if st.session_state.get('data_fetched', False):
         default_home_team = home_table["Team"].iloc[0]
         default_away_team = away_table["Team"].iloc[0]
 
-        home_team_name_for_ratings = st.session_state.get("home_team_select", default_home_team)
-        away_team_name_for_ratings = st.session_state.get("away_team_select", default_away_team)
+        home_team_name_from_state = st.session_state.get("home_team_select", default_home_team)
+        away_team_name_from_state = st.session_state.get("away_team_select", default_away_team)
+        
+        # --- FIX for IndexError ---
+        # Check if the team from session state is actually in the NEW table. 
+        # If not, fall back to the default team for this league.
+        if home_team_name_from_state in home_table["Team"].values:
+            home_team_name_for_ratings = home_team_name_from_state
+        else:
+            home_team_name_for_ratings = default_home_team
+
+        if away_team_name_from_state in away_table["Team"].values:
+            away_team_name_for_ratings = away_team_name_from_state
+        else:
+            away_team_name_for_ratings = default_away_team
+        # --- END FIX ---
         
         home_rating = home_table[home_table["Team"] == home_team_name_for_ratings].iloc[0]['Rating']
         away_rating = away_table[away_table["Team"] == away_team_name_for_ratings].iloc[0]['Rating']
