@@ -1,74 +1,17 @@
-import html
-import io
-import logging
-import random
-import re
-import time
-from datetime import datetime
-from typing import Optional
-from urllib.parse import urljoin
-
-import numpy as np
+import streamlit as st
 import pandas as pd
 import requests
-import streamlit as st
 from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter, Retry
+import io
+import math
+import random
+import time
+import re
+import html
+from datetime import datetime
 
 # Set page title and icon
 st.set_page_config(page_title="Elo Ratings Odds Calculator", page_icon="odds_icon.png")
-
-BASE_URL = "https://www.soccer-rating.com/"
-BASE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Cache-Control": "no-cache",
-}
-
-_session = requests.Session()
-_retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-_session.mount("https://", HTTPAdapter(max_retries=_retries))
-
-
-def build_league_urls(country: str, league: str) -> dict:
-    """Return normalized URLs for a league including home/away views."""
-    normalized = f"{country.strip('/')}/{league.strip('/')}/"
-    base_url = urljoin(BASE_URL, normalized)
-    return {
-        "base": base_url,
-        "home": urljoin(base_url, "home/"),
-        "away": urljoin(base_url, "away/"),
-    }
-
-
-def build_team_url(team_path: str) -> str:
-    """Return an absolute team URL relative to the base site."""
-    team_path = team_path.lstrip('/')
-    return urljoin(BASE_URL, team_path)
-
-
-def fetch_soup(url: str, referer: Optional[str] = None, timeout: int = 15) -> BeautifulSoup:
-    """Fetch a URL using the shared session and return a BeautifulSoup parser."""
-    headers = BASE_HEADERS.copy()
-    headers["Referer"] = referer or BASE_URL
-    response = _session.get(url, headers=headers, timeout=timeout)
-    response.raise_for_status()
-    return BeautifulSoup(response.text, "lxml")
-
-
-def fetch_league_soup(country: str, league: str, view: str = "base") -> BeautifulSoup:
-    """Fetch and parse a league page view (base/home/away)."""
-    urls = build_league_urls(country, league)
-    target_url = urls.get(view, urls["base"])
-    referer = urls["base"] if view != "base" else BASE_URL
-    return fetch_soup(target_url, referer=referer)
-
-
-def fetch_team_soup(team_path: str) -> BeautifulSoup:
-    """Fetch and parse a team page."""
-    url = build_team_url(team_path)
-    return fetch_soup(url)
 
 # Combined dictionary for both Men's and Women's leagues
 leagues_data = {
@@ -238,7 +181,20 @@ spinner_messages = [
     "Almost there, preparing the stats..."
 ]
 
-logger = logging.getLogger(__name__)
+BASE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+}
+
+
+def fetch_with_headers(url, referer=None, timeout=15):
+    headers = BASE_HEADERS.copy()
+    headers["Referer"] = referer or "https://www.soccer-rating.com/"
+    response = requests.get(url, headers=headers, timeout=timeout)
+    response.raise_for_status()
+    return response
 
 # --- Helper Functions ---
 def normalize_team_name(name):
@@ -258,123 +214,76 @@ def normalize_team_name(name):
 @st.cache_data(ttl=3600)
 def fetch_table_data(country, league):
     """Fetches and parses ratings and league table in one go."""
-    def extract_rating_table(soup, keyword, fallback_ids):
-        """Extract rating table for home/away views with validation."""
-        keyword_lower = keyword.lower()
-        candidates = list(soup.find_all('table', class_='rattab'))
-        for table_id in fallback_ids:
-            fallback_table = soup.find('table', id=table_id)
-            if fallback_table:
-                candidates.append(fallback_table)
-
-        seen = set()
-        required_headers = {"team", "rating"}
-        for table in candidates:
-            if id(table) in seen:
-                continue
-            seen.add(id(table))
-
-            header = table.find('th')
-            header_text = header.get_text(strip=True).lower() if header else ""
-            if keyword_lower not in header_text:
-                continue
-
-            header_row = None
-            for potential_row in table.find_all('tr'):
-                cells = potential_row.find_all(['th', 'td'])
-                if len(cells) >= 2:
-                    header_row = potential_row
-                    break
-            if not header_row:
-                logger.error("%s rating table missing header row", keyword)
-                continue
-
-            header_cells = {
-                re.sub(r"[^a-z]", "", cell.get_text(strip=True).lower())
-                for cell in header_row.find_all(['th', 'td'])
-            }
-            if not required_headers.issubset(header_cells):
-                logger.error("%s rating table missing required columns: %s", keyword, required_headers - header_cells)
-                continue
-
-            teams_data = []
-            for row in table.find_all('tr')[1:]:
-                cols = row.find_all('td')
-                if len(cols) < 5:
-                    continue
-                team_link = cols[1].find('a')
-                if not team_link or not team_link.has_attr('href'):
-                    continue
-                team_url = team_link['href']
-                team_name_text = team_link.get_text(strip=True)
-                team_slug = team_url.strip('/').split('/')[-1] if team_url else ""
-                name_from_url = team_name_text or team_slug.replace('-', ' ')
-                rating_text = cols[4].get_text(strip=True)
-                try:
-                    rating = float(rating_text)
-                except ValueError:
-                    logger.error("Invalid rating value '%s' encountered in %s table", rating_text, keyword)
-                    continue
-                teams_data.append({"Team": name_from_url, "Rating": rating, "URL": team_url})
-
-            if teams_data:
-                return pd.DataFrame(teams_data)
-            logger.error("%s rating table did not contain any rows", keyword)
-        return None
-
+    base_url = f"https://www.soccer-rating.com/{country}/{league}/"
+    home_url = f"{base_url}home/"
+    away_url = f"{base_url}away/"
     try:
-        soup_home = fetch_league_soup(country, league, "home")
-        soup_away = fetch_league_soup(country, league, "away")
+        response_home = fetch_with_headers(home_url, referer=base_url)
+        soup_home = BeautifulSoup(response_home.text, "lxml")
 
-        home_rating_table = extract_rating_table(soup_home, "Home", ("home", "home_table", "home_rating"))
-        away_rating_table = extract_rating_table(soup_away, "Away", ("away", "away_table", "away_rating"))
+        response_away = fetch_with_headers(away_url, referer=base_url)
+        soup_away = BeautifulSoup(response_away.text, "lxml")
+
+        home_rating_table = None
+        for table in soup_home.find_all('table', class_='rattab'):
+            header = table.find('th')
+            if header and "Home" in header.get_text():
+                teams_data = []
+                for row in table.find_all('tr')[1:]:
+                    cols = row.find_all('td')
+                    if len(cols) == 5:
+                        team_link = cols[1].find('a')
+                        if team_link and team_link.has_attr('href'):
+                            team_url = team_link['href']
+                            # Extract team name from the URL for consistency
+                            name_from_url = team_url.split('/')[1].replace('-', ' ')
+                            rating = float(cols[4].get_text(strip=True))
+                            teams_data.append({"Team": name_from_url, "Rating": rating, "URL": team_url})
+                home_rating_table = pd.DataFrame(teams_data)
+                break
+        
+        away_rating_table = None
+        for table in soup_away.find_all('table', class_='rattab'):
+            header = table.find('th')
+            if header and "Away" in header.get_text():
+                teams_data = []
+                for row in table.find_all('tr')[1:]:
+                    cols = row.find_all('td')
+                    if len(cols) == 5:
+                        team_link = cols[1].find('a')
+                        if team_link and team_link.has_attr('href'):
+                            team_url = team_link['href']
+                            name_from_url = team_url.split('/')[1].replace('-', ' ')
+                            rating = float(cols[4].get_text(strip=True))
+                            teams_data.append({"Team": name_from_url, "Rating": rating, "URL": team_url})
+                away_rating_table = pd.DataFrame(teams_data)
+                break
 
         league_table = None
-        try:
-            all_html_tables = pd.read_html(io.StringIO(str(soup_home)), flavor="lxml")
-        except ValueError:
-            all_html_tables = []
+        all_html_tables = pd.read_html(io.StringIO(str(soup_home)), flavor="lxml")
         expected_columns = {"M", "P.", "Goals", "Home", "Away", "Home.4", "Away.4"}
         for candidate in all_html_tables:
-            candidate_columns = set(candidate.columns.astype(str))
-            if expected_columns.issubset(candidate_columns):
+            if expected_columns.issubset(set(candidate.columns.astype(str))):
                 league_table = candidate
                 break
-        if league_table is None:
-            logger.error(
-                "League table for %s %s missing required columns: %s",
-                country,
-                league,
-                expected_columns,
-            )
         return home_rating_table, away_rating_table, league_table
-    except Exception as exc:
-        logger.exception("Failed to fetch league tables for %s %s: %s", country, league, exc)
+    except Exception:
         return None, None, None
 
 @st.cache_data(ttl=3600)
 def fetch_league_odds(country, league):
     """Fetches the available odds table from the main league page."""
+    url = f"https://www.soccer-rating.com/{country}/{league}/"
     try:
-        soup = fetch_league_soup(country, league)
+        response = fetch_with_headers(url)
+        soup = BeautifulSoup(response.text, "lxml")
 
-        header_selectors = [
-            lambda s: s.find('th', string=re.compile(r"Rating\s*Available Odds", re.I)),
-            lambda s: s.find('caption', string=re.compile(r"Available Odds", re.I)),
-        ]
-
-        header = None
-        for selector in header_selectors:
-            header = selector(soup)
-            if header:
-                break
+        header = soup.find('th', string=re.compile(r"Rating\s*Available Odds"))
         if not header:
-            logger.error("Could not locate odds header for %s %s", country, league)
             return None
 
         odds_table = header.find_parent('table')
         if not odds_table:
-            logger.error("Odds table missing for %s %s", country, league)
             return None
 
         odds_data = []
@@ -385,7 +294,6 @@ def fetch_league_odds(country, league):
 
             # Guard against decorative spacer rows that break the expected width
             if len(cols) < 7:
-                logger.debug("Skipping odds row with insufficient columns for %s %s", country, league)
                 continue
 
             date_text = cols[0].get_text(" ", strip=True)
@@ -431,12 +339,8 @@ def fetch_league_odds(country, league):
                 "odd_2": odd_2
             })
 
-        if not odds_data:
-            logger.error("No odds rows parsed for %s %s", country, league)
-            return None
-        return pd.DataFrame(odds_data)
-    except Exception as exc:
-        logger.exception("Failed to fetch league odds for %s %s: %s", country, league, exc)
+        return pd.DataFrame(odds_data) if odds_data else None
+    except Exception:
         return None
 
 def find_section_header(soup, header_text):
@@ -564,7 +468,10 @@ def get_correct_table(soup, target_team_name, target_team_url, header_text, tabl
 def fetch_team_page_data(team_name, team_url):
     """Fetches lineup, squad, and last matches from a single team page visit."""
     try:
-        soup = fetch_team_soup(team_url)
+        url = f"https://www.soccer-rating.com{team_url}"
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "lxml")
 
         # Parse Lineup
         lineup_table = get_correct_table(soup, team_name, team_url, 'Expected Lineup', 'line1', 'line2')
@@ -628,8 +535,7 @@ def fetch_team_page_data(team_name, team_url):
                         league_matches_count += 1
 
         return lineup_data, squad_data, {"matches": last_matches_data, "points": points}
-    except Exception as exc:
-        logger.exception("Failed to fetch team data for %s (%s): %s", team_name, team_url, exc)
+    except Exception:
         return None, None, None
 
 def get_league_suggested_draw_rate(league_table):
@@ -1191,31 +1097,17 @@ if st.session_state.get('data_fetched', False):
         home_team_data = home_table[home_table["Team"] == home_team_name].iloc[0]
         away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
 
-    changed = False
-    if st.session_state.get('last_home_team') != home_team_name:
+    if 'last_home_team' not in st.session_state or st.session_state.last_home_team != home_team_name:
         with st.spinner(f"Fetching {home_team_name} data..."):
             lineup, squad, matches = fetch_team_page_data(home_team_name, home_team_data['URL'])
-            st.session_state.update({
-                'home_lineup': lineup,
-                'home_squad': squad,
-                'home_matches': matches,
-                'last_home_team': home_team_name,
-            })
-        changed = True
+            st.session_state.update({'home_lineup': lineup, 'home_squad': squad, 'home_matches': matches, 'last_home_team': home_team_name})
+            time.sleep(1); st.rerun()
 
-    if st.session_state.get('last_away_team') != away_team_name:
+    if 'last_away_team' not in st.session_state or st.session_state.last_away_team != away_team_name:
         with st.spinner(f"Fetching {away_team_name} data..."):
             lineup, squad, matches = fetch_team_page_data(away_team_name, away_team_data['URL'])
-            st.session_state.update({
-                'away_lineup': lineup,
-                'away_squad': squad,
-                'away_matches': matches,
-                'last_away_team': away_team_name,
-            })
-        changed = True
-
-    if changed:
-        st.rerun()
+            st.session_state.update({'away_lineup': lineup, 'away_squad': squad, 'away_matches': matches, 'last_away_team': away_team_name})
+            st.rerun()
 
     with st.expander("📊 Team Statistics", expanded=False):
         league_table = st.session_state.get("league_table")
@@ -1265,16 +1157,10 @@ if st.session_state.get('data_fetched', False):
         st.markdown("---")
         margin = st.slider("Apply Bookmaker's Margin (%):", 0, 15, 5, 1)
         margin_decimal = margin / 100.0
-        probs = np.array([p_home, p_draw, p_away], dtype=float)
-        target_sum = 1.0 + margin_decimal
-        if probs.sum() > 0 and target_sum > 0:
-            normalized_probs = probs / probs.sum()
-            adjusted_probs = normalized_probs * target_sum
-            odds_array = np.divide(1.0, adjusted_probs, out=np.zeros_like(adjusted_probs), where=adjusted_probs > 0)
-        else:
-            odds_array = np.zeros_like(probs)
-        h_odds, d_odds, a_odds = odds_array
-
+        h_odds = 1 / (p_home * (1 + margin_decimal)) if p_home > 0 else 0
+        d_odds = 1 / (p_draw * (1 + margin_decimal)) if p_draw > 0 else 0
+        a_odds = 1 / (p_away * (1 + margin_decimal)) if p_away > 0 else 0
+        
         st.write("**Calculated Odds with Margin:**")
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"<div class='card'><div class='card-title'>Home (1)</div><div class='card-value'>{h_odds:.2f}</div></div>", unsafe_allow_html=True)
@@ -1284,13 +1170,8 @@ if st.session_state.get('data_fetched', False):
         st.markdown("---")
         st.write("**Draw No Bet Odds:**")
         p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
-        dnb_probs = np.array([p_dnb_home, 1 - p_dnb_home], dtype=float)
-        if dnb_probs.sum() > 0 and target_sum > 0:
-            adjusted_dnb = (dnb_probs / dnb_probs.sum()) * target_sum
-            dnb_odds_array = np.divide(1.0, adjusted_dnb, out=np.zeros_like(adjusted_dnb), where=adjusted_dnb > 0)
-        else:
-            dnb_odds_array = np.zeros_like(dnb_probs)
-        dnb_h_odds, dnb_a_odds = dnb_odds_array
+        dnb_h_odds = 1 / (p_dnb_home * (1 + margin_decimal)) if p_dnb_home > 0 else 0
+        dnb_a_odds = 1 / ((1 - p_dnb_home) * (1 + margin_decimal)) if (1-p_dnb_home) > 0 else 0
         dnb_c1, dnb_c2 = st.columns(2)
         dnb_c1.markdown(f"<div class='card'><div class='card-title'>Home (DNB)</div><div class='card-value'>{dnb_h_odds:.2f}</div></div>", unsafe_allow_html=True)
         dnb_c2.markdown(f"<div class='card'><div class='card-title'>Away (DNB)</div><div class='card-value'>{dnb_a_odds:.2f}</div></div>", unsafe_allow_html=True)
