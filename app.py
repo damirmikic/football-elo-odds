@@ -709,8 +709,8 @@ def display_squad(team_name, squad_key, lineup_key):
     for p in squad_data:
         player_cols = st.columns([4, 2, 2])
         player_cols[0].write(f"**{p['name']}**" if p['name'] in starter_names else p['name'])
-                player_cols[1].write(str(p['age']))
-                player_cols[2].write(f"**{p['rating']}**")
+        player_cols[1].write(str(p['age']))
+        player_cols[2].write(f"**{p['rating']}**")
 
 def display_last_matches(team_name, matches_key):
     """Displays the last 5 league matches for a team."""
