@@ -7,6 +7,7 @@ import math
 import random
 import time
 import re
+import html
 from datetime import datetime
 
 # Set page title and icon
@@ -28,12 +29,12 @@ leagues_data = {
         "Denmark": ["DK1", "DK2", "DK3", "DK4"],
         "Greece": ["GR1", "GR2"],
         "Norway": ["NO1", "NO2", "NO3G1", "NO3G2"],
-        "Czech-Republic": ["CZ1", "CZ2"],
+        "Czech Republic": ["CZ1", "CZ2"],
         "Turkey": ["TU1", "TU2", "TU3B", "TU3K"],
         "Belgium": ["BE1", "BE2"],
         "Scotland": ["SC1", "SC2", "SC3", "SC4"],
         "Switzerland": ["CH1", "CH2"],
-        "Finland": ["FI1", "FI2", "FI3A", "FI3B", "FI3C"],
+        "Finland": ["FI1", "FI2", "FI3", "FI4A", "FI4B", "FI4C"],
         "Ukraine": ["UA1", "UA2"],
         "Romania": ["RO1", "RO2"],
         "Poland": ["PL1", "PL2", "PL3"],
@@ -173,7 +174,6 @@ sorted_countries = sorted(all_leagues.keys())
 
 
 SPINNER_MESSAGES = [
-# ... (rest of constants) ...
     "Fetching the latest football ratings...",
     "Hold tight, we're gathering the data...",
     "Just a moment, crunching the numbers...",
@@ -188,16 +188,23 @@ BASE_HEADERS = {
     "Cache-Control": "no-cache",
 }
 
+DEFAULT_DRAW_RATE = 0.27
+# Constants for the Elo-based draw model
+# A 200-point Elo diff will reduce the draw prob by ~25%
+# A 400-point Elo diff will reduce the draw prob by ~44%
+DRAW_DECAY_FACTOR = 0.0035
+
+
 def load_css(file_name):
-# ... (rest of function) ...
-    """Loads a CSS file and injects it into the Streamlit app."""
+    """Loads a local CSS file."""
     try:
         with open(file_name) as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except FileNotFoundError:
-        st.error(f"CSS file '{file_name}' not found. Please add it to the app directory.")
+        st.error(f"CSS file not found: {file_name}")
 
 def fetch_with_headers(url, referer=None, timeout=15):
+    """Performs a GET request with standard browser headers."""
     headers = BASE_HEADERS.copy()
     headers["Referer"] = referer or "https://www.soccer-rating.com/"
     response = requests.get(url, headers=headers, timeout=timeout)
@@ -206,7 +213,6 @@ def fetch_with_headers(url, referer=None, timeout=15):
 
 # --- Helper Functions ---
 def normalize_team_name(name):
-# ... (rest of function) ...
     """Robustly cleans and standardizes a team name for reliable matching."""
     if not isinstance(name, str): return ""
     name = name.lower()
@@ -221,59 +227,7 @@ def normalize_team_name(name):
 # --- Data Fetching and Parsing Functions ---
 
 @st.cache_data(ttl=3600)
-def fetch_soccerstats_data():
-    """
-    Fetches and parses league-wide statistics (Draw %, Avg Goals)
-    from soccerstats.com to be used for better draw probability estimates.
-    """
-    url = "https://www.soccerstats.com/leagues.asp"
-    try:
-        response = fetch_with_headers(url, referer="https://www.soccerstats.com/")
-        soup = BeautifulSoup(response.text, "lxml")
-        
-        table = soup.find("table", id="btable")
-        if not table:
-            return None
-
-        league_stats = []
-        for row in table.find("tbody").find_all("tr"):
-            cols = row.find_all("td")
-            if len(cols) < 8:
-                continue
-            
-            try:
-                # Clean and split league name
-                league_full = cols[0].get_text(strip=True)
-                if ' - ' not in league_full:
-                    continue
-                country, league_name = league_full.split(' - ', 1)
-                
-                # Clean and convert draw string
-                draw_str = cols[5].get_text(strip=True)
-                draw_pct = float(draw_str.replace('%', ''))
-                
-                # Clean and convert goals string
-                goals_str = cols[7].get_text(strip=True)
-                avg_goals = float(goals_str)
-
-                league_stats.append({
-                    "Country": country,
-                    "LeagueName": league_name,
-                    "Draws": draw_pct,
-                    "AvgGoals": avg_goals
-                })
-            except (ValueError, TypeError):
-                # Skip rows with invalid data (e.g., '-', or non-numeric)
-                continue
-        
-        return pd.DataFrame(league_stats)
-    except Exception:
-        return None
-
-
-@st.cache_data(ttl=3600)
 def fetch_table_data(country, league):
-# ... (rest of function) ...
     """Fetches and parses ratings and league table in one go."""
     base_url = f"https://www.soccer-rating.com/{country}/{league}/"
     home_url = f"{base_url}home/"
@@ -331,16 +285,53 @@ def fetch_table_data(country, league):
     except Exception:
         return None, None, None
 
+@st.cache_data(ttl=3600)
+def fetch_soccerstats_data():
+    """Fetches league-wide stats (Draw %, Avg Goals) from soccerstats.com."""
+    url = "https://www.soccerstats.com/leagues.asp"
+    try:
+        response = requests.get(url, headers=BASE_HEADERS, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "lxml")
+        
+        table = soup.find('table', id='btable')
+        if not table:
+            return None
+
+        data = []
+        rows = table.find_all('tr')
+        
+        for row in rows[1:]: # Skip header row
+            cols = row.find_all('td')
+            if len(cols) == 14: # Ensure it's a data row
+                try:
+                    league_full = cols[0].get_text(strip=True)
+                    country, league_name = league_full.split(' - ', 1)
+                    
+                    draw_pct = cols[5].get_text(strip=True).replace('%', '')
+                    avg_goals = cols[7].get_text(strip=True)
+
+                    data.append({
+                        "Country": country.strip(),
+                        "League": league_name.strip(),
+                        "Draw%": float(draw_pct) / 100.0 if draw_pct != '-' else None,
+                        "AvgGoals": float(avg_goals) if avg_goals != '-' else None
+                    })
+                except (ValueError, IndexError):
+                    continue # Skip rows that don't parse correctly
+        
+        return pd.DataFrame(data)
+    except Exception:
+        return None
+
 def find_section_header(soup, header_text):
-# ... (rest of function) ...
+    """Finds a specific header tag in the soup."""
     for header in soup.find_all('th'):
         if header_text in header.get_text():
             return header
     return None
 
-
 def get_correct_table(soup, target_team_name, target_team_url, header_text, table_id_1, table_id_2):
-# ... (rest of function) ...
     """Finds the correct data table using a hybrid URL-first, then name-fallback approach."""
     header = find_section_header(soup, header_text)
     if not header: return None 
@@ -377,7 +368,6 @@ def get_correct_table(soup, target_team_name, target_team_url, header_text, tabl
 
 @st.cache_data(ttl=3600)
 def fetch_team_page_data(team_name, team_url):
-# ... (rest of function) ...
     """Fetches lineup, squad, and last matches from a single team page visit."""
     try:
         url = f"https://www.soccer-rating.com{team_url}"
@@ -452,87 +442,180 @@ def fetch_team_page_data(team_name, team_url):
 
 def get_league_suggested_draw_rate(selected_country, selected_league):
     """
-    Tries to find the exact league draw rate from the scraped soccerstats.com data.
-    It maps the selected league (e.g., "England", "UK2") to the corresponding
-    entry in the soccerstats DataFrame.
+    Finds the actual draw rate for the selected league from the scraped soccerstats data.
     """
-    DEFAULT_DRAW_RATE = 0.27
     try:
-        soccer_stats_df = st.session_state.get("soccer_stats")
-        if soccer_stats_df is None or soccer_stats_df.empty:
+        stats_df = st.session_state.get("soccer_stats")
+        if not isinstance(stats_df, pd.DataFrame):
             return DEFAULT_DRAW_RATE
 
-        # Get the list of leagues for the selected country from our app's dictionary
+        # Find the league index from our own mapping
         league_list = all_leagues[selected_country]
+        try:
+            league_index = league_list.index(selected_league)
+        except (ValueError, TypeError):
+            league_index = 0 # Default to first league
+
+        # Normalize country name for matching
+        country_name = selected_country.replace('-', ' ').replace('-Women', '')
+        if country_name == "Bosnia-Herzegovina": country_name = "Bosnia and Herzegovina"
+        if country_name == "South-Korea": country_name = "South Korea"
+        if country_name == "South-Africa": country_name = "South Africa"
+        if country_name == "Saudi-Arabia": country_name = "Saudi Arabia"
+        if country_name == "Czech Republic": country_name = "Czech Republic"
         
-        # Normalize country name for matching (e.g., "USA-Women" -> "USA")
-        stats_country_name = selected_country.split('-')[0]
+        # Filter stats_df by country
+        country_leagues = stats_df[stats_df['Country'].str.contains(country_name, case=False, na=False)]
+        
+        # Handle Women's leagues
+        if "Women" in selected_country:
+            country_leagues = country_leagues[country_leagues['League'].str.contains("Women", case=False, na=False)]
+        else:
+            # Exclude women's leagues if we're looking for men's
+            country_leagues = country_leagues[~country_leagues['League'].str.contains("Women", case=False, na=False)]
 
-        # Filter stats by the matched country name
-        leagues_for_country_stats = soccer_stats_df[
-            soccer_stats_df['Country'].str.contains(stats_country_name, case=False)
-        ].reset_index()
-
-        if leagues_for_country_stats.empty:
+        if country_leagues.empty:
             return DEFAULT_DRAW_RATE
 
-        # Find the index of the selected league (e.g., "UK1" is 0, "UK2" is 1)
-        league_index = league_list.index(selected_league)
-
-        # If we have a stat row corresponding to that index, use it
-        if league_index < len(leagues_for_country_stats):
-            matched_rate = leagues_for_country_stats.iloc[league_index]['Draws']
-            return matched_rate / 100.0  # Convert 30.0 to 0.30
+        # Try to pick the league by its index
+        if league_index < len(country_leagues):
+            draw_rate = country_leagues.iloc[league_index]["Draw%"]
         else:
-            # Fallback: If we selected a lower league (e.g., UK5) that soccerstats
-            # doesn't list, just use the draw rate of the country's primary league.
-            return leagues_for_country_stats.iloc[0]['Draws'] / 100.0
+            # Fallback to the primary league for that country
+            draw_rate = country_leagues.iloc[0]["Draw%"]
+
+        return draw_rate if pd.notna(draw_rate) else DEFAULT_DRAW_RATE
 
     except Exception:
         # Broad fallback in case of any error
         return DEFAULT_DRAW_RATE
 
-#
-# REMOVED: This was a bad copy-paste of the function above
-# (The entire try...except block that was here is now gone)
-#
-
-def calculate_outcome_probabilities(home_rating, away_rating, draw_probability):
+def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob):
     """
-    Calculates home, draw, and away probabilities with user-specified draw rate.
+    Calculates home, draw, and away probabilities with Elo-based draw adjustment.
     """
-    home_advantage = 0
+    # 1. Adjust draw probability based on Elo difference
+    elo_diff = abs(home_rating - away_rating)
+    # Use an exponential decay to reduce draw prob as Elo diff increases
+    # The decay factor is tuned to reduce prob reasonably
+    draw_probability = base_draw_prob * math.exp(-elo_diff * DRAW_DECAY_FACTOR)
+    
+    # 2. Calculate initial H/A probs based on Elo (as if no draw)
+    home_advantage = 0 # This could be a tunable constant, e.g., 50-80 Elo points
     adjusted_rating_diff = home_rating - away_rating + home_advantage
     p_home_vs_away = 1 / (1 + 10**(-adjusted_rating_diff / 400))
     
+    # 3. Distribute the remaining probability between Home and Away
     remaining_prob = 1 - draw_probability
     p_home = p_home_vs_away * remaining_prob
     p_away = (1 - p_home_vs_away) * remaining_prob
     
+    # 4. Normalize to ensure sum is 1 (should be close already)
     total = p_home + draw_probability + p_away
     return p_home / total, draw_probability / total, p_away / total
 
-# --- UI Display Functions ---
+def apply_overround(probs, margin_pct):
+    """
+    Applies a bookmaker's margin (overround) to a set of fair probabilities
+    using the proportional scaling method.
+    """
+    if not probs or sum(probs) == 0:
+        return [0] * len(probs)
+        
+    margin_decimal = margin_pct / 100.0
+    target_overround = 1 + margin_decimal
+    
+    # This is the scaling factor 'k'. We solve k * sum(p_i) = target_overround
+    # But since sum(p_i) is 1, k is just target_overround.
+    # We apply this k to the *inverse* of the probabilities (the odds)
+    # which is equivalent to dividing the probabilities by k.
+    
+    # No, the standard method is to find a factor 'k' such that sum(p_i / k) = target_overround
+    # This is not quite right.
+    
+    # Let's use the standard multiplicative method (which is one of several)
+    # p_i' = p_i / (1 - margin_decimal)
+    # This will result in sum(p_i') > 1.
+    # Let's use the method where sum(1/odds_i) = target_overround.
+    
+    # p_i' = k * p_i
+    # sum(p_i') = k * sum(p_i) = k * 1 = k
+    # We want sum(p_i') = target_overround
+    # So k = target_overround. This is incorrect, as this would mean p_i' = p_i * (1 + margin)
+    
+    # Let's use the correct "proportional scaling" or "odds ratio" method.
+    # We need to find a single scaling factor 'k' such that:
+    # (p_home / k) + (p_draw / k) + (p_away / k) = target_overround
+    # (1/k) * (p_home + p_draw + p_away) = target_overround
+    # (1/k) * 1 = target_overround
+    # k = 1 / target_overround
+    
+    # This factor k is applied to the probabilities *before* inverting to odds.
+    k = 1 / target_overround
+    
+    adjusted_probs = [p * (1/k) for p in probs]
+    
+    # Wait, that's wrong. Let's re-think.
+    # Fair odds = 1/p. Bookie odds = 1/p'
+    # We want sum(p') = target_overround.
+    # Let p_i' = p_i * C (where C is a constant > 1)
+    # sum(p_i') = sum(p_i * C) = C * sum(p_i) = C * 1 = C
+    # So, the constant C is just the target overround.
+    
+    adjusted_probs = [p * target_overround for p in probs]
+    
+    # This simple scaling method isn't perfect, as it applies margin uniformly.
+    # A more common one is to scale odds: bookie_odds = fair_odds * (1 - margin)
+    # bookie_odds = (1/p) * (1 - margin)
+    # p' = 1 / bookie_odds = 1 / ((1/p) * (1-margin)) = p / (1-margin)
+    
+    if margin_decimal == 1:
+        return [0] * len(probs) # Avoid division by zero if margin is 100%
+
+    k = 1.0 - margin_decimal
+    
+    adjusted_probs = [p / k for p in probs]
+    
+    # Let's check: p_h=0.5, p_a=0.5. Margin=10% (0.1)
+    # k = 0.9
+    # p_h' = 0.5 / 0.9 = 0.555...
+    # p_a' = 0.5 / 0.9 = 0.555...
+    # sum(p') = 1.111... (which is 1 / 0.9, or 1 / (1-margin))
+    # This is a common method. The total book % is 1 / (1 - margin_pct).
+    # A 5% margin (0.05) gives k=0.95, 1/0.95 = 1.0526 (105.3% book). This is correct.
+    
+    return adjusted_probs
+
+
+def probs_to_odds(probs):
+    """Converts a list of probabilities to decimal odds."""
+    return [1 / p if p > 0 else 0 for p in probs]
+
+# --- UI Helper Functions ---
 
 def display_team_stats(team_name, table, column):
-# ... (rest of function) ...
-    """Displays key league stats for a selected team in a given column."""
+    """Displays key league stats for a team in a given column."""
     try:
         normalized_target = normalize_team_name(team_name)
-        table['normalized_name'] = table.iloc[:, 1].apply(normalize_team_name)
+        if 'normalized_name' not in table.columns:
+            table['normalized_name'] = table.iloc[:, 1].apply(normalize_team_name)
+        
         team_stats = table[table['normalized_name'] == normalized_target].iloc[0]
         column.markdown(f"**{team_name}**")
-        column.metric(label="League Position", value=f"#{int(team_stats.iloc[0])}")
+        
+        pos = int(team_stats.iloc[0])
+        column.metric(label="League Position", value=f"#{pos}")
+        
         matches, points = int(team_stats['M']), int(team_stats['P.'])
         gf, ga = map(int, team_stats['Goals'].split(':'))
+        
         column.metric(label="Avg. Goals Scored", value=f"{gf/matches:.2f}")
         column.metric(label="Avg. Goals Conceded", value=f"{ga/matches:.2f}")
-    except (IndexError, ValueError, KeyError):
+    except (IndexError, ValueError, KeyError, ZeroDivisionError):
         column.warning(f"Stats unavailable for {team_name}.")
 
 def display_interactive_lineup(team_name, team_key):
-# ... (rest of function) ...
-    """Renders the interactive lineup selector for a team."""
+    """Displays the interactive lineup selector for a team."""
     st.subheader(f"{team_name}")
     lineup_data = st.session_state.get(team_key)
     if not lineup_data: 
@@ -542,10 +625,9 @@ def display_interactive_lineup(team_name, team_key):
     header_cols = st.columns([1, 4, 2, 2, 2])
     header_cols[0].markdown('<p class="player-table-header">On</p>', unsafe_allow_html=True)
     header_cols[1].markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
-    header_cols[2].markdown('<p class="player-table-header">Position</p>', unsafe_allow_html=True)
+    header_cols[2].markdown('<p class="player-table-header">Pos</p>', unsafe_allow_html=True)
     header_cols[3].markdown('<p class="player-table-header">Stats</p>', unsafe_allow_html=True)
     header_cols[4].markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
-
 
     selected_starters = []
     for i, p in enumerate(lineup_data):
@@ -557,11 +639,12 @@ def display_interactive_lineup(team_name, team_key):
         player_cols[3].write(p['stats'])
         player_cols[4].write(f"**{p['rating']}**")
     
-    # ... (rest of lineup analysis) ...
+    if selected_starters:
+        avg_rating = sum(p['rating'] for p in selected_starters) / len(selected_starters)
+        st.metric(label="Avg. Starter Rating", value=f"{avg_rating:.2f}")
 
 def display_squad(team_name, squad_key, lineup_key):
-# ... (rest of function) ...
-    """Renders the full squad list."""
+    """Displays the full squad list."""
     st.subheader(f"{team_name}")
     squad_data = st.session_state.get(squad_key)
     if not squad_data: 
@@ -569,6 +652,12 @@ def display_squad(team_name, squad_key, lineup_key):
         return
 
     starter_names = {p['name'] for p in st.session_state.get(lineup_key, [])[:11]}
+    
+    header_cols = st.columns([4, 2, 2])
+    header_cols[0].markdown('<p class="player-table-header">Player</p>', unsafe_allow_html=True)
+    header_cols[1].markdown('<p class="player-table-header">Age</p>', unsafe_allow_html=True)
+    header_cols[2].markdown('<p class="player-table-header">Rating</p>', unsafe_allow_html=True)
+
     for p in squad_data:
         player_cols = st.columns([4, 2, 2])
         player_cols[0].write(f"**{p['name']}**" if p['name'] in starter_names else p['name'])
@@ -576,18 +665,18 @@ def display_squad(team_name, squad_key, lineup_key):
         player_cols[2].write(f"**{p['rating']}**")
 
 def display_last_matches(team_name, matches_key):
-# ... (rest of function) ...
-    """Renders the last 5 league matches for a team."""
+    """Displays the last 5 league matches for a team."""
     st.subheader(f"{team_name}")
     matches_data = st.session_state.get(matches_key)
     if not matches_data or not matches_data["matches"]: 
         st.warning("Recent match data not available.")
         return
+    
     st.metric("Points in Last 5 League Matches", matches_data["points"])
     for match in matches_data["matches"]:
-        match_date = match['date']
-        opponent = match['opponent']
-        result = match['result']
+        match_date = html.escape(match['date'])
+        opponent = html.escape(match['opponent'])
+        result = html.escape(match['result'])
         st.markdown(
             f"<div class='match-line'>"
             f"<span class='match-date'>{match_date}</span>"
@@ -597,13 +686,10 @@ def display_last_matches(team_name, matches_key):
             unsafe_allow_html=True
         )
 
-# --- UI Styling & App Layout ---
-
-# Load custom CSS
+# --- Main App Layout ---
 load_css("style.css")
 
 st.markdown(
-# ... (rest of markdown) ...
     """
     <div class="header">⚽ Elo Ratings Odds Studio</div>
     <div class="subheader">Track live ratings, surface the sharpest prices, and dive into form in one polished workspace.</div>
@@ -612,11 +698,11 @@ st.markdown(
 )
 
 with st.sidebar.expander("✨ Quick Guide", expanded=True):
-# ... (rest of markdown) ...
     st.markdown(
         """
         - Select a **country + league** to pull the freshest ratings snapshot.
-        - Use the main workspace to **compare clubs, lineups, and value zones**.
+        - Use the **Single Match** tab to analyze a specific matchup.
+        - Use the **Multi-Match** tab to see odds for all league fixtures.
         """
     )
 
@@ -626,22 +712,24 @@ if 'data_fetched' not in st.session_state: st.session_state['data_fetched'] = Fa
 if 'current_selection' not in st.session_state: st.session_state['current_selection'] = None
 
 def fetch_data_for_selection(country, league):
+    """Callback to fetch all data when league selection changes."""
     current_selection = f"{country}_{league}"
     if st.session_state.get('current_selection') != current_selection or not st.session_state.get('data_fetched', False):
         st.session_state['current_selection'] = current_selection
         with st.spinner(random.choice(SPINNER_MESSAGES)):
             home_table, away_table, league_table = fetch_table_data(country, league)
-            soccer_stats_df = fetch_soccerstats_data() # Fetch new stats
+            soccer_stats = fetch_soccerstats_data()
             
             if isinstance(home_table, pd.DataFrame) and not home_table.empty:
                 st.session_state.update({
                     "home_table": home_table,
                     "away_table": away_table,
                     "league_table": league_table,
-                    "soccer_stats": soccer_stats_df, # Store new stats
+                    "soccer_stats": soccer_stats,
                     "data_fetched": True,
                     "last_refresh": time.time()
                 })
+                # Clear team-specific data
                 for key in ['home_lineup', 'away_lineup', 'home_squad', 'away_squad', 
                            'home_matches', 'away_matches', 'last_home_team', 'last_away_team']: 
                     st.session_state.pop(key, None)
@@ -650,101 +738,59 @@ def fetch_data_for_selection(country, league):
                 st.session_state['data_fetched'] = False
                 st.error(f"❌ Failed to load data for {country} - {league}")
 
+# --- Sidebar League Selection ---
 selected_country = st.sidebar.selectbox("Select Country/League Type:", sorted_countries, key="country_select")
 league_list = all_leagues[selected_country]
 selected_league = st.sidebar.selectbox("Select League:", league_list, key="league_select")
 
+# Fetch data on selection change
 fetch_data_for_selection(selected_country, selected_league)
-
 
 # --- Main Content Area ---
 if st.session_state.get('data_fetched', False):
     home_table = st.session_state.home_table
     away_table = st.session_state.away_table
-    league_table = st.session_state.get("league_table")
-
+    team_list = sorted(home_table["Team"].unique())
+    
     last_refresh = st.session_state.get("last_refresh")
-    if last_refresh:
-        refresh_text = datetime.utcfromtimestamp(last_refresh).strftime("%d %b %Y %H:%M UTC")
-    else:
-        refresh_text = "Awaiting refresh"
+    refresh_text = datetime.utcfromtimestamp(last_refresh).strftime("%d %b %Y %H:%M UTC") if last_refresh else "Awaiting refresh"
 
     st.markdown(
-# ... (rest of markdown) ...
         f"""
         <div class="hero-card">
-            <div class="hero-title">{selected_country} · {selected_league}</div>
+            <div class="hero-title">{html.escape(selected_country)} · {html.escape(selected_league)}</div>
             <div class="hero-subtitle">Explore the live blend of Elo strength, bookmaker prices, and matchup context.</div>
             <div class="hero-meta">
+                <span class="hero-pill">Teams: {len(team_list)}</span>
                 <span class="hero-pill">Last synced: {refresh_text}</span>
-                <span class="hero-pill">Interactive odds modelling</span>
+                <span class="hero-pill">Dynamic draw modelling</span>
             </div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    # --- Global Odds Inputs (Used by both tabs) ---
-    with st.expander("📈 Analysis Inputs", expanded=True):
-        # We need a default team selection for the initial rating display
-        # This will be updated inside the "Single Match" tab
-        default_home_team = home_table["Team"].iloc[0]
-        default_away_team = away_table["Team"].iloc[0]
-
-        home_team_name_from_state = st.session_state.get("home_team_select", default_home_team)
-        away_team_name_from_state = st.session_state.get("away_team_select", default_away_team)
-        
-        # --- FIX for IndexError ---
-        # Check if the team from session state is actually in the NEW table. 
-        # If not, fall back to the default team for this league.
-        if home_team_name_from_state in home_table["Team"].values:
-            home_team_name_for_ratings = home_team_name_from_state
-        else:
-            home_team_name_for_ratings = default_home_team
-
-        if away_team_name_from_state in away_table["Team"].values:
-            away_team_name_for_ratings = away_team_name_from_state
-        else:
-            away_team_name_for_ratings = default_away_team
-        # --- END FIX ---
-        
-        home_rating = home_table[home_table["Team"] == home_team_name_for_ratings].iloc[0]['Rating']
-        away_rating = away_table[away_table["Team"] == away_team_name_for_ratings].iloc[0]['Rating']
-        
-        c1, c2 = st.columns(2)
-        c1.metric(f"{home_team_name_for_ratings} Rating", f"{home_rating:.2f}")
-        c2.metric(f"{away_team_name_for_ratings} Rating", f"{away_rating:.2f}")
-        st.caption(f"Ratings displayed are for the teams selected in the 'Single Match Analysis' tab.")
-
-        st.markdown("---")
-        # Updated to pass the selected league info
+    # --- Global Inputs ---
+    with st.expander("📈 Odds Analysis (Global Inputs)", expanded=False):
+        col_info, col_model = st.columns([1, 3])
         suggested_draw_rate = get_league_suggested_draw_rate(selected_country, selected_league)
-        col_slider, col_info = st.columns([3, 1])
-        
-        draw_probability = col_slider.slider("Set Draw Probability:", 0.15, 0.45, suggested_draw_rate, 0.01, "%.2f", key="global_draw_prob")
-        col_info.metric("League Avg", f"{suggested_draw_rate:.1%}")
-        
-        # margin = st.slider("Apply Global Bookmaker's Margin (%):", 0, 15, 5, 1, key="global_margin")
-        # margin_decimal = margin / 100.0
-
-
-    # --- Analysis Tabs ---
+        col_info.metric("League Avg. Draw", f"{suggested_draw_rate:.1%}")
+        col_model.info(f"Using Elo-based 'Closeness Model'. Draw probability starts at **{suggested_draw_rate:.1%}** and decreases as the Elo gap between teams widens.")
+    
+    
+    # --- Main App Tabs ---
     tab1, tab2 = st.tabs(["Single Match Analysis", "Multi-Match Calculator"])
 
     with tab1:
-        with st.expander("⚽ Matchup", expanded=True):
+        with st.expander("⚽ Matchup Selection", expanded=True):
             col1, col2 = st.columns(2)
-            home_team_name = col1.selectbox("Select Home Team:", home_table["Team"], key="home_team_select")
-            away_team_name = col2.selectbox("Select Away Team:", away_table["Team"], key="away_team_select")
-            
-            home_team_data = home_table[home_table["Team"] == home_team_name].iloc[0]
-            away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
-            
-            # This triggers a rerun if the *ratings* in the global box need to update
-            if (home_team_name != home_team_name_for_ratings) or (away_team_name != away_team_name_for_ratings):
-                st.rerun()
+            home_team_name = col1.selectbox("Select Home Team:", team_list, key="home_team_select")
+            away_team_name = col2.selectbox("Select Away Team:", team_list, index=1 if len(team_list) > 1 else 0, key="away_team_select")
+        
+        # --- Fetch Team-Specific Data (Lineups, etc.) ---
+        home_team_data = home_table[home_table["Team"] == home_team_name].iloc[0]
+        away_team_data = away_table[away_table["Team"] == away_team_name].iloc[0]
 
-        # --- Refactored Team Data Fetching ---
         home_needs_fetch = 'last_home_team' not in st.session_state or st.session_state.last_home_team != home_team_name
         away_needs_fetch = 'last_away_team' not in st.session_state or st.session_state.last_away_team != away_team_name
 
@@ -757,53 +803,54 @@ if st.session_state.get('data_fetched', False):
                 if away_needs_fetch:
                     lineup, squad, matches = fetch_team_page_data(away_team_name, away_team_data['URL'])
                     st.session_state.update({'away_lineup': lineup, 'away_squad': squad, 'away_matches': matches, 'last_away_team': away_team_name})
-                
-                time.sleep(1) # Keep the 1-second sleep for smoother UX
-                st.rerun()
-        # --- End Refactor ---
+            st.rerun()
+        
+        # --- Single Match Analysis ---
+        with st.expander("📊 Team Ratings", expanded=True):
+            home_rating, away_rating = home_team_data['Rating'], away_team_data['Rating']
+            c1, c2 = st.columns(2)
+            c1.metric(f"{home_team_name} (Home) Rating", f"{home_rating:.2f}")
+            c2.metric(f"{away_team_name} (Away) Rating", f"{away_rating:.2f}")
 
-        with st.expander("🎯 Calculated Odds (Single Match)", expanded=True):
-            p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating, draw_probability)
+        with st.expander("🎯 Calculated Odds", expanded=True):
+            margin = st.slider("Apply Bookmaker's Margin (%):", 0.0, 15.0, 5.0, 0.5, format="%.1f%%", key="single_margin")
+
+            # --- 1. Fair Probabilities ---
+            p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating, suggested_draw_rate)
             
-            st.markdown(f"**Calculated Fair Probabilities**")
+            st.markdown("---")
+            st.markdown(f"**Calculated Fair Probabilities** (Dynamic Draw: {p_draw:.2%})")
             prob_cols = st.columns(3)
             prob_cols[0].metric("Home Win", f"{p_home:.2%}")
             prob_cols[1].metric("Draw", f"{p_draw:.2%}")
             prob_cols[2].metric("Away Win", f"{p_away:.2%}")
             
+            # --- 2. Apply Margin & Get Odds (1x2) ---
+            adj_probs_1x2 = apply_overround([p_home, p_draw, p_away], margin)
+            odds_1x2 = probs_to_odds(adj_probs_1x2)
+            
             st.markdown("---")
-            # ADDED: Margin slider for this tab
-            margin_single = st.slider("Apply Bookmaker's Margin (%):", 0, 15, 5, 1, key="single_margin")
-            margin_decimal_single = margin_single / 100.0
-            
-            h_odds = 1 / (p_home * (1 + margin_decimal_single)) if p_home > 0 else 0
-            d_odds = 1 / (p_draw * (1 + margin_decimal_single)) if p_draw > 0 else 0
-            a_odds = 1 / (p_away * (1 + margin_decimal_single)) if p_away > 0 else 0
-            
             st.write("**Calculated Odds with Margin:**")
             c1, c2, c3 = st.columns(3)
-            c1.markdown(f"<div class='card'><div class='card-title'>Home (1)</div><div class='card-value'>{h_odds:.2f}</div></div>", unsafe_allow_html=True)
-            c2.markdown(f"<div class='card'><div class='card-title'>Draw (X)</div><div class='card-value'>{d_odds:.2f}</div></div>", unsafe_allow_html=True)
-            c3.markdown(f"<div class='card'><div class='card-title'>Away (2)</div><div class='card-value'>{a_odds:.2f}</div></div>", unsafe_allow_html=True)
+            c1.markdown(f"<div class='card'><div class='card-title'>Home (1)</div><div class='card-value'>{odds_1x2[0]:.2f}</div></div>", unsafe_allow_html=True)
+            c2.markdown(f"<div class='card'><div class='card-title'>Draw (X)</div><div class='card-value'>{odds_1x2[1]:.2f}</div></div>", unsafe_allow_html=True)
+            c3.markdown(f"<div class='card'><div class='card-title'>Away (2)</div><div class='card-value'>{odds_1x2[2]:.2f}</div></div>", unsafe_allow_html=True)
 
+            # --- 3. Apply Margin & Get Odds (DNB) ---
+            p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
+            p_dnb_away = 1 - p_dnb_home
+            
+            adj_probs_dnb = apply_overround([p_dnb_home, p_dnb_away], margin)
+            odds_dnb = probs_to_odds(adj_probs_dnb)
+            
             st.markdown("---")
             st.write("**Draw No Bet Odds:**")
-            p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
-            dnb_h_odds = 1 / (p_dnb_home * (1 + margin_decimal_single)) if p_dnb_home > 0 else 0
-            dnb_a_odds = 1 / ((1 - p_dnb_home) * (1 + margin_decimal_single)) if (1-p_dnb_home) > 0 else 0
             dnb_c1, dnb_c2 = st.columns(2)
-            dnb_c1.markdown(f"<div class='card'><div class='card-title'>Home (DNB)</div><div class='card-value'>{dnb_h_odds:.2f}</div></div>", unsafe_allow_html=True)
-            dnb_c2.markdown(f"<div class='card'><div class='card-title'>Away (DNB)</div><div class='card-value'>{dnb_a_odds:.2f}</div></div>", unsafe_allow_html=True)
+            dnb_c1.markdown(f"<div class='card'><div class='card-title'>Home (DNB)</div><div class='card-value'>{odds_dnb[0]:.2f}</div></div>", unsafe_allow_html=True)
+            dnb_c2.markdown(f"<div class='card'><div class='card-title'>Away (DNB)</div><div class='card-value'>{odds_dnb[1]:.2f}</div></div>", unsafe_allow_html=True)
 
-        with st.expander("📊 Team Statistics", expanded=False):
-            if isinstance(league_table, pd.DataFrame):
-                stat_col1, stat_col2 = st.columns(2)
-                display_team_stats(home_team_name, league_table, stat_col1)
-                display_team_stats(away_team_name, league_table, stat_col2)
-            else:
-                st.warning("League table not available for detailed statistics.")
 
-        with st.expander("📋 Interactive Lineups", expanded=True):
+        with st.expander("📋 Interactive Lineups", expanded=False):
             col1, col2 = st.columns(2)
             with col1: display_interactive_lineup(f"{home_team_name} (Home)", "home_lineup")
             with col2: display_interactive_lineup(f"{away_team_name} (Away)", "away_lineup")
@@ -817,79 +864,65 @@ if st.session_state.get('data_fetched', False):
             match_col1, match_col2 = st.columns(2)
             with match_col1: display_last_matches(f"{home_team_name} (Home)", "home_matches")
             with match_col2: display_last_matches(f"{away_team_name} (Away)", "away_matches")
+
+        with st.expander("📊 League Statistics", expanded=False):
+            league_table = st.session_state.get("league_table")
+            if isinstance(league_table, pd.DataFrame):
+                stat_col1, stat_col2 = st.columns(2)
+                display_team_stats(home_team_name, league_table, stat_col1)
+                display_team_stats(away_team_name, league_table, stat_col2)
+            else:
+                st.warning("League table not available for detailed statistics.")
     
     with tab2:
-        st.subheader("Multi-Match Odds Viewer")
-        st.write("Select matchups to see the calculated odds. The Draw % and Margin % from the inputs above will be applied.")
-
-        # ADDED: Margin slider for this tab
-        margin_multi = st.slider("Apply Bookmaker's Margin (%):", 0, 15, 5, 1, key="multi_margin")
-        margin_decimal_multi = margin_multi / 100.0
-
-        team_list = ["---"] + sorted(home_table["Team"].unique())
-        num_teams = len(team_list) - 1
-        num_rows = math.ceil(num_teams / 2)
+        st.subheader("League Fixture Odds Calculator")
         
-        # REMOVED: pick_options and selections
-
-        # New layout with headers
+        margin_multi = st.slider("Apply Bookmaker's Margin (%):", 0.0, 15.0, 5.0, 0.5, format="%.1f%%", key="multi_margin")
         st.markdown("---")
-        header_cols = st.columns([3, 3, 2, 2, 2])
+
+        num_matches = math.ceil(len(team_list) / 2)
+        
+        # Create a header
+        header_cols = st.columns([3, 3, 1, 1, 1])
         header_cols[0].markdown("**Home Team**")
         header_cols[1].markdown("**Away Team**")
-        header_cols[2].markdown("<div class='odds-display'><b>Home (1)</b></div>", unsafe_allow_html=True)
-        header_cols[3].markdown("<div class='odds-display'><b>Draw (X)</b></div>", unsafe_allow_html=True)
-        header_cols[4].markdown("<div class='odds-display'><b>Away (2)</b></div>", unsafe_allow_html=True)
+        header_cols[2].markdown("<div class='odds-box-title' style='text-align:center;'>1</div>", unsafe_allow_html=True)
+        header_cols[3].markdown("<div class='odds-box-title' style='text-align:center;'>X</div>", unsafe_allow_html=True)
+        header_cols[4].markdown("<div class='odds-box-title' style='text-align:center;'>2</div>", unsafe_allow_html=True)
 
 
-        for i in range(num_rows):
-            cols = st.columns([3, 3, 2, 2, 2])
-            with cols[0]:
-                home_selection = st.selectbox("Home Team", team_list, key=f"multi_home_{i}", index=0, label_visibility="collapsed")
-            with cols[1]:
-                away_selection = st.selectbox("Away Team", team_list, key=f"multi_away_{i}", index=0, label_visibility="collapsed")
+        for i in range(num_matches):
+            cols = st.columns([3, 3, 1, 1, 1])
             
-            # Placeholders for odds
-            odds_1_col = cols[2]
-            odds_x_col = cols[3]
-            odds_2_col = cols[4]
-
-            # REMOVED: pick_selection
+            # --- 1. Team Selection ---
+            home_idx = i * 2 if (i * 2) < len(team_list) else 0
+            away_idx = (i * 2) + 1 if (i * 2) + 1 < len(team_list) else 1
             
-            # Now, calculate and display odds if teams are selected
-            if home_selection != "---" and away_selection != "---":
-                try:
-                    home_rating = home_table[home_table["Team"] == home_selection].iloc[0]['Rating']
-                    away_rating = away_table[away_table["Team"] == away_selection].iloc[0]['Rating']
-                    
-                    p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating, draw_probability)
-                    
-                    h_odds = 1 / (p_home * (1 + margin_decimal_multi)) if p_home > 0 else 0
-                    d_odds = 1 / (p_draw * (1 + margin_decimal_multi)) if p_draw > 0 else 0
-                    a_odds = 1 / (p_away * (1 + margin_decimal_multi)) if p_away > 0 else 0
+            key_h = f"multi_home_{i}"
+            key_a = f"multi_away_{i}"
+            
+            multi_home_name = cols[0].selectbox(f"Home {i+1}", team_list, index=home_idx, key=key_h, label_visibility="collapsed")
+            multi_away_name = cols[1].selectbox(f"Away {i+1}", team_list, index=away_idx, key=key_a, label_visibility="collapsed")
 
-                    # Use new .odds-box style
-                    odds_1_col.markdown(f"<div class='odds-box'><div class='odds-box-title'>1</div><div class='odds-box-value'>{h_odds:.2f}</div></div>", unsafe_allow_html=True)
-                    odds_x_col.markdown(f"<div class='odds-box'><div class='odds-box-title'>X</div><div class='odds-box-value'>{d_odds:.2f}</div></div>", unsafe_allow_html=True)
-                    odds_2_col.markdown(f"<div class='odds-box'><div class='odds-box-title'>2</div><div class='odds-box-value'>{a_odds:.2f}</div></div>", unsafe_allow_html=True)
-                    
-                    # REMOVED: Add to selections block
+            # --- 2. Get Ratings ---
+            try:
+                multi_home_rating = home_table[home_table["Team"] == multi_home_name].iloc[0]['Rating']
+                multi_away_rating = away_table[away_table["Team"] == multi_away_name].iloc[0]['Rating']
+            except IndexError:
+                cols[2].write("ERR")
+                cols[3].write("ERR")
+                cols[4].write("ERR")
+                continue
 
-                except Exception:
-                    # Handle error if team not found (shouldn't happen)
-                    odds_1_col.markdown("<div class='odds-box'><div class='odds-box-value'>Err</div></div>", unsafe_allow_html=True)
-                    odds_x_col.markdown("<div class='odds-box'><div class='odds-box-value'>Err</div></div>", unsafe_allow_html=True)
-                    odds_2_col.markdown("<div class='odds-box'><div class='odds-box-value'>Err</div></div>", unsafe_allow_html=True)
-            else:
-                # Show empty boxes
-                odds_1_col.markdown("<div class='odds-box'><div class='odds-box-value'>-</div></div>", unsafe_allow_html=True)
-                odds_x_col.markdown("<div class='odds-box'><div class='odds-box-value'>-</div></div>", unsafe_allow_html=True)
-                odds_2_col.markdown("<div class='odds-box'><div class='odds-box-value'>-</div></div>", unsafe_allow_html=True)
+            # --- 3. Calculate Probs & Odds ---
+            p_h, p_d, p_a = calculate_outcome_probabilities(multi_home_rating, multi_away_rating, suggested_draw_rate)
+            adj_probs = apply_overround([p_h, p_d, p_a], margin_multi)
+            odds = probs_to_odds(adj_probs)
 
-        
-        st.markdown("---")
-        # REMOVED: "Calculate Parlay Odds" button and all related logic
-
+            # --- 4. Display Odds in Boxes ---
+            cols[2].markdown(f"<div class='odds-box'><div class='odds-box-value'>{odds[0]:.2f}</div></div>", unsafe_allow_html=True)
+            cols[3].markdown(f"<div class='odds-box'><div class='odds-box-value'>{odds[1]:.2f}</div></div>", unsafe_allow_html=True)
+            cols[4].markdown(f"<div class='odds-box'><div class='odds-box-value'>{odds[2]:.2f}</div></div>", unsafe_allow_html=True)
 
 else:
     st.info("Please select a country and league in the sidebar to begin.")
