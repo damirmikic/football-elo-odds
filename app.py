@@ -37,9 +37,9 @@ DEFAULT_AVG_GOALS = 2.6
 # Optional weight for blending the observed league draw rate back into the
 # Poisson-derived draw probability. Default keeps the Poisson result.
 DRAW_OBS_WEIGHT = 0.0
-# Global multiplier to calibrate the base draw probability. Values below 1
-# reduce draws (default trims ~10%), values above 1 boost them.
-DRAW_RATE_SCALE = 0.9
+# Global multiplier applied to the Bradley-Terry draw ratio. Values above 1
+# lift draw probabilities (default bumps them ~10%), values below 1 trim them.
+DRAW_RATE_SCALE = 1.1
 
 # Elo-based scaling parameters for adjusting the expected goal total before
 # computing the Poisson draw probability. The factor is applied to the rating
@@ -779,10 +779,10 @@ def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob, av
     blended_draw = poisson_draw if alpha == 0 else (
         alpha * observed_draw + (1 - alpha) * poisson_draw
     )
-    blended_draw *= DRAW_RATE_SCALE
     blended_draw = min(max(blended_draw, 1e-6), 0.999999)
 
     nu = blended_draw / (1 - blended_draw)
+    nu = max(nu * max(DRAW_RATE_SCALE, 1e-6), 0.0)
 
     denominator = strength_ratio + 1 + (2 * nu)
     if denominator == 0:
