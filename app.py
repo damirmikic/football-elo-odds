@@ -8,6 +8,8 @@ import random
 import time
 import re
 import html
+import json
+from pathlib import Path
 from datetime import datetime
 
 # Set page title and icon
@@ -35,240 +37,49 @@ DEFAULT_DRAW_RATE = 0.27
 DRAW_DECAY_FACTOR = 0.0035
 
 
-# --- Hardcoded League Statistical Data ---
-# This data is manually parsed from the user-provided stats.
-SOCCERSTATS_DATA = {
-    "Albania - Abissnet Superiore": {"GP": 50, "HomeW%": 0.44, "Draw%": 0.30, "AwayW%": 0.26, "AvgGoals": 1.92, "AvgHG": 1.10, "AvgAG": 0.82},
-    "Andorra - Primera Divisio": {"GP": 21, "HomeW%": 0.43, "Draw%": 0.29, "AwayW%": 0.29, "AvgGoals": 2.24, "AvgHG": 1.19, "AvgAG": 1.05},
-    "Argentina - Liga Profesional - Apertura": {"GP": 240, "HomeW%": 0.44, "Draw%": 0.31, "AwayW%": 0.25, "AvgGoals": 2.00, "AvgHG": 1.18, "AvgAG": 0.81},
-    "Argentina - Liga Profesional - Clausura": {"GP": 210, "HomeW%": 0.38, "Draw%": 0.33, "AwayW%": 0.29, "AvgGoals": 1.96, "AvgHG": 1.06, "AvgAG": 0.90},
-    "Argentina - Primera B - Apertura": {"GP": 210, "HomeW%": 0.40, "Draw%": 0.34, "AwayW%": 0.26, "AvgGoals": 1.99, "AvgHG": 1.16, "AvgAG": 0.82},
-    "Argentina - Primera B - Clausura": {"GP": 190, "HomeW%": 0.38, "Draw%": 0.35, "AwayW%": 0.26, "AvgGoals": 2.10, "AvgHG": 1.17, "AvgAG": 0.93},
-    "Armenia - Premier League": {"GP": 58, "HomeW%": 0.45, "Draw%": 0.22, "AwayW%": 0.33, "AvgGoals": 2.60, "AvgHG": 1.57, "AvgAG": 1.03},
-    "Australia - A-League": {"GP": 18, "HomeW%": 0.56, "Draw%": 0.33, "AwayW%": 0.11, "AvgGoals": 2.72, "AvgHG": 1.67, "AvgAG": 1.06},
-    "Australia - A-League Women": {"GP": 5, "HomeW%": 0.40, "Draw%": 0.20, "AwayW%": 0.40, "AvgGoals": 3.80, "AvgHG": 2.00, "AvgAG": 1.80},
-    "Australia - NPL Victoria": {"GP": 182, "HomeW%": 0.45, "Draw%": 0.21, "AwayW%": 0.35, "AvgGoals": 3.30, "AvgHG": 1.81, "AvgAG": 1.49},
-    "Australia - NPL Western Australia": {"GP": 132, "HomeW%": 0.38, "Draw%": 0.21, "AwayW%": 0.41, "AvgGoals": 3.39, "AvgHG": 1.68, "AvgAG": 1.71},
-    "Australia - NPL South Australia": {"GP": 132, "HomeW%": 0.45, "Draw%": 0.14, "AwayW%": 0.41, "AvgGoals": 3.42, "AvgHG": 1.80, "AvgAG": 1.62},
-    "Australia - NPL Tasmania": {"GP": 84, "HomeW%": 0.44, "Draw%": 0.11, "AwayW%": 0.45, "AvgGoals": 4.63, "AvgHG": 2.27, "AvgAG": 2.36},
-    "Australia - NPL New South Wales": {"GP": 240, "HomeW%": 0.42, "Draw%": 0.23, "AwayW%": 0.35, "AvgGoals": 2.98, "AvgHG": 1.56, "AvgAG": 1.42},
-    "Austria - Bundesliga": {"GP": 71, "HomeW%": 0.37, "Draw%": 0.23, "AwayW%": 0.41, "AvgGoals": 2.72, "AvgHG": 1.35, "AvgAG": 1.37},
-    "Austria - 2. Liga": {"GP": 96, "HomeW%": 0.34, "Draw%": 0.31, "AwayW%": 0.34, "AvgGoals": 2.82, "AvgHG": 1.42, "AvgAG": 1.41},
-    "Austria - Regionalliga West": {"GP": 119, "HomeW%": 0.43, "Draw%": 0.20, "AwayW%": 0.37, "AvgGoals": 3.28, "AvgHG": 1.76, "AvgAG": 1.52},
-    "Austria - Regionalliga Mitte": {"GP": 111, "HomeW%": 0.43, "Draw%": 0.23, "AwayW%": 0.34, "AvgGoals": 3.71, "AvgHG": 1.96, "AvgAG": 1.75},
-    "Austria - Regionalliga Ost": {"GP": 111, "HomeW%": 0.48, "Draw%": 0.23, "AwayW%": 0.30, "AvgGoals": 2.91, "AvgHG": 1.72, "AvgAG": 1.19},
-    "Austria - Bundesliga Women": {"GP": 55, "HomeW%": 0.35, "Draw%": 0.13, "AwayW%": 0.53, "AvgGoals": 3.40, "AvgHG": 1.53, "AvgAG": 1.87},
-    "Azerbaijan - Premier League": {"GP": 59, "HomeW%": 0.36, "Draw%": 0.27, "AwayW%": 0.37, "AvgGoals": 2.53, "AvgHG": 1.31, "AvgAG": 1.22},
-    "Bahrain - Premier League": {"GP": 35, "HomeW%": 0.34, "Draw%": 0.34, "AwayW%": 0.31, "AvgGoals": 2.40, "AvgHG": 1.31, "AvgAG": 1.09},
-    "Bangladesh - Premier League": {"GP": 10, "HomeW%": 0.20, "Draw%": 0.40, "AwayW%": 0.40, "AvgGoals": 2.00, "AvgHG": 0.90, "AvgAG": 1.10},
-    "Belarus - Vysshaya Liga": {"GP": 216, "HomeW%": 0.43, "Draw%": 0.22, "AwayW%": 0.35, "AvgGoals": 2.54, "AvgHG": 1.38, "AvgAG": 1.16},
-    "Belgium - Pro League": {"GP": 104, "HomeW%": 0.44, "Draw%": 0.27, "AwayW%": 0.29, "AvgGoals": 2.58, "AvgHG": 1.47, "AvgAG": 1.11},
-    "Belgium - Challenger Pro League": {"GP": 96, "HomeW%": 0.34, "Draw%": 0.27, "AwayW%": 0.39, "AvgGoals": 2.76, "AvgHG": 1.33, "AvgAG": 1.43},
-    "Bolivia - Division Profesional": {"GP": 191, "HomeW%": 0.52, "Draw%": 0.23, "AwayW%": 0.26, "AvgGoals": 3.42, "AvgHG": 2.09, "AvgAG": 1.34},
-    "Bosnia and Herzegovina - Premier Liga": {"GP": 64, "HomeW%": 0.52, "Draw%": 0.25, "AwayW%": 0.23, "AvgGoals": 2.33, "AvgHG": 1.47, "AvgAG": 0.86},
-    "Brazil - Serie A": {"GP": 314, "HomeW%": 0.50, "Draw%": 0.26, "AwayW%": 0.24, "AvgGoals": 2.41, "AvgHG": 1.46, "AvgAG": 0.95},
-    "Brazil - Serie B": {"GP": 350, "HomeW%": 0.45, "Draw%": 0.30, "AwayW%": 0.24, "AvgGoals": 2.22, "AvgHG": 1.29, "AvgAG": 0.94},
-    "Brazil - Serie C": {"GP": 190, "HomeW%": 0.46, "Draw%": 0.32, "AwayW%": 0.23, "AvgGoals": 2.06, "AvgHG": 1.17, "AvgAG": 0.89},
-    "Brazil - Brasileiro Women": {"GP": 120, "HomeW%": 0.45, "Draw%": 0.26, "AwayW%": 0.29, "AvgGoals": 3.10, "AvgHG": 1.78, "AvgAG": 1.33},
-    "Brazil - Carioca": {"GP": 66, "HomeW%": 0.41, "Draw%": 0.32, "AwayW%": 0.27, "AvgGoals": 2.18, "AvgHG": 1.20, "AvgAG": 0.98},
-    "Brazil - Gaucho": {"GP": 48, "HomeW%": 0.42, "Draw%": 0.33, "AwayW%": 0.25, "AvgGoals": 2.15, "AvgHG": 1.29, "AvgAG": 0.85},
-    "Bulgaria - Parva Liga": {"GP": 111, "HomeW%": 0.40, "Draw%": 0.33, "AwayW%": 0.27, "AvgGoals": 2.39, "AvgHG": 1.34, "AvgAG": 1.05},
-    "Bulgaria - Vtora Liga": {"GP": 111, "HomeW%": 0.42, "Draw%": 0.29, "AwayW%": 0.29, "AvgGoals": 2.46, "AvgHG": 1.41, "AvgAG": 1.05},
-    "Canada - Premier League": {"GP": 112, "HomeW%": 0.44, "Draw%": 0.29, "AwayW%": 0.27, "AvgGoals": 3.00, "AvgHG": 1.71, "AvgAG": 1.29},
-    "Chile - Liga de Primera": {"GP": 208, "HomeW%": 0.51, "Draw%": 0.23, "AwayW%": 0.26, "AvgGoals": 2.61, "AvgHG": 1.54, "AvgAG": 1.07},
-    "Chile - Liga de Ascenso": {"GP": 240, "HomeW%": 0.42, "Draw%": 0.30, "AwayW%": 0.27, "AvgGoals": 2.34, "AvgHG": 1.38, "AvgAG": 0.96},
-    "China - Super League": {"GP": 232, "HomeW%": 0.47, "Draw%": 0.25, "AwayW%": 0.27, "AvgGoals": 3.21, "AvgHG": 1.81, "AvgAG": 1.40},
-    "China - League One": {"GP": 231, "HomeW%": 0.45, "Draw%": 0.27, "AwayW%": 0.28, "AvgGoals": 2.56, "AvgHG": 1.44, "AvgAG": 1.12},
-    "China - League Two": {"GP": 359, "HomeW%": 0.40, "Draw%": 0.28, "AwayW%": 0.32, "AvgGoals": 2.26, "AvgHG": 1.23, "AvgAG": 1.03},
-    "Colombia - Primera A - Apertura": {"GP": 200, "HomeW%": 0.48, "Draw%": 0.29, "AwayW%": 0.23, "AvgGoals": 2.19, "AvgHG": 1.31, "AvgAG": 0.88},
-    "Colombia - Primera A - Clausura": {"GP": 179, "HomeW%": 0.45, "Draw%": 0.28, "AwayW%": 0.26, "AvgGoals": 2.49, "AvgHG": 1.41, "AvgAG": 1.08},
-    "Colombia - Primera B - Apertura": {"GP": 128, "HomeW%": 0.45, "Draw%": 0.27, "AwayW%": 0.29, "AvgGoals": 2.41, "AvgHG": 1.43, "AvgAG": 0.98},
-    "Costa Rica - Primera Div. - Apertura": {"GP": 74, "HomeW%": 0.41, "Draw%": 0.31, "AwayW%": 0.28, "AvgGoals": 2.43, "AvgHG": 1.32, "AvgAG": 1.11},
-    "Costa Rica - Primera Div. - Clausura": {"GP": 132, "HomeW%": 0.40, "Draw%": 0.30, "AwayW%": 0.30, "AvgGoals": 2.25, "AvgHG": 1.25, "AvgAG": 1.00},
-    "Croatia - 1. HNL": {"GP": 60, "HomeW%": 0.45, "Draw%": 0.27, "AwayW%": 0.28, "AvgGoals": 2.60, "AvgHG": 1.45, "AvgAG": 1.15},
-    "Croatia - 1. NL": {"GP": 79, "HomeW%": 0.46, "Draw%": 0.29, "AwayW%": 0.25, "AvgGoals": 2.14, "AvgHG": 1.24, "AvgAG": 0.90},
-    "Cyprus - Cyprus League": {"GP": 63, "HomeW%": 0.46, "Draw%": 0.19, "AwayW%": 0.35, "AvgGoals": 2.60, "AvgHG": 1.44, "AvgAG": 1.16},
-    "Cyprus - Division 2": {"GP": 54, "HomeW%": 0.33, "Draw%": 0.20, "AwayW%": 0.46, "AvgGoals": 2.59, "AvgHG": 1.22, "AvgAG": 1.37},
-    "Czech Republic - 1. Liga": {"GP": 112, "HomeW%": 0.36, "Draw%": 0.32, "AwayW%": 0.32, "AvgGoals": 2.46, "AvgHG": 1.22, "AvgAG": 1.24},
-    "Czech Republic - FNL": {"GP": 116, "HomeW%": 0.46, "Draw%": 0.20, "AwayW%": 0.34, "AvgGoals": 2.82, "AvgHG": 1.60, "AvgAG": 1.22},
-    "Czech Republic - 1. Liga Women": {"GP": 36, "HomeW%": 0.53, "Draw%": 0.11, "AwayW%": 0.36, "AvgGoals": 4.31, "AvgHG": 2.72, "AvgAG": 1.58},
-    "Denmark - Superligaen": {"GP": 84, "HomeW%": 0.45, "Draw%": 0.19, "AwayW%": 0.36, "AvgGoals": 3.24, "AvgHG": 1.69, "AvgAG": 1.55},
-    "Denmark - 1st Division": {"GP": 90, "HomeW%": 0.41, "Draw%": 0.28, "AwayW%": 0.31, "AvgGoals": 2.77, "AvgHG": 1.50, "AvgAG": 1.27},
-    "Denmark - 2nd Division": {"GP": 84, "HomeW%": 0.46, "Draw%": 0.17, "AwayW%": 0.37, "AvgGoals": 2.76, "AvgHG": 1.57, "AvgAG": 1.19},
-    "Ecuador - Liga Pro": {"GP": 269, "HomeW%": 0.41, "Draw%": 0.29, "AwayW%": 0.30, "AvgGoals": 2.55, "AvgHG": 1.38, "AvgAG": 1.17},
-    "Egypt - Premier League": {"GP": 127, "HomeW%": 0.31, "Draw%": 0.39, "AwayW%": 0.29, "AvgGoals": 1.86, "AvgHG": 0.94, "AvgAG": 0.92},
-    "England - Premier League": {"GP": 100, "HomeW%": 0.51, "Draw%": 0.21, "AwayW%": 0.28, "AvgGoals": 2.68, "AvgHG": 1.55, "AvgAG": 1.13},
-    "England - Championship": {"GP": 167, "HomeW%": 0.39, "Draw%": 0.29, "AwayW%": 0.32, "AvgGoals": 2.49, "AvgHG": 1.28, "AvgAG": 1.20},
-    "England - League One": {"GP": 164, "HomeW%": 0.48, "Draw%": 0.22, "AwayW%": 0.30, "AvgGoals": 2.43, "AvgHG": 1.40, "AvgAG": 1.03},
-    "England - League Two": {"GP": 168, "HomeW%": 0.42, "Draw%": 0.24, "AwayW%": 0.33, "AvgGoals": 2.63, "AvgHG": 1.43, "AvgAG": 1.19},
-    "England - National League": {"GP": 199, "HomeW%": 0.41, "Draw%": 0.27, "AwayW%": 0.32, "AvgGoals": 2.75, "AvgHG": 1.52, "AvgAG": 1.23},
-    "England - National L. North": {"GP": 180, "HomeW%": 0.44, "Draw%": 0.23, "AwayW%": 0.33, "AvgGoals": 3.02, "AvgHG": 1.59, "AvgAG": 1.43},
-    "England - National L. South": {"GP": 180, "HomeW%": 0.41, "Draw%": 0.28, "AwayW%": 0.31, "AvgGoals": 2.57, "AvgHG": 1.38, "AvgAG": 1.19},
-    "England - Women Super League": {"GP": 41, "HomeW%": 0.46, "Draw%": 0.17, "AwayW%": 0.37, "AvgGoals": 2.88, "AvgHG": 1.34, "AvgAG": 1.54},
-    "England - WSL 2": {"GP": 42, "HomeW%": 0.33, "Draw%": 0.24, "AwayW%": 0.43, "AvgGoals": 3.21, "AvgHG": 1.55, "AvgAG": 1.67},
-    "Estonia - Meistriliiga": {"GP": 175, "HomeW%": 0.47, "Draw%": 0.13, "AwayW%": 0.41, "AvgGoals": 3.19, "AvgHG": 1.75, "AvgAG": 1.44},
-    "FaroeIslands - Premier League": {"GP": 135, "HomeW%": 0.40, "Draw%": 0.20, "AwayW%": 0.40, "AvgGoals": 3.63, "AvgHG": 1.81, "AvgAG": 1.82},
-    "Finland - Veikkausliiga": {"GP": 174, "HomeW%": 0.40, "Draw%": 0.23, "AwayW%": 0.37, "AvgGoals": 3.31, "AvgHG": 1.66, "AvgAG": 1.65},
-    "Finland - Ykkosliga": {"GP": 135, "HomeW%": 0.43, "Draw%": 0.26, "AwayW%": 0.31, "AvgGoals": 3.28, "AvgHG": 1.74, "AvgAG": 1.54},
-    "Finland - Ykkonen": {"GP": 162, "HomeW%": 0.52, "Draw%": 0.19, "AwayW%": 0.29, "AvgGoals": 3.48, "AvgHG": 2.02, "AvgAG": 1.46},
-    "Finland - Kakkonen Group A": {"GP": 90, "HomeW%": 0.52, "Draw%": 0.12, "AwayW%": 0.36, "AvgGoals": 4.32, "AvgHG": 2.43, "AvgAG": 1.89},
-    "Finland - Kakkonen Group B": {"GP": 90, "HomeW%": 0.44, "Draw%": 0.17, "AwayW%": 0.39, "AvgGoals": 3.84, "AvgHG": 2.12, "AvgAG": 1.72},
-    "Finland - Kakkonen Group C": {"GP": 72, "HomeW%": 0.51, "Draw%": 0.10, "AwayW%": 0.39, "AvgGoals": 4.43, "AvgHG": 2.56, "AvgAG": 1.88},
-    "Finland - Kansallinen Liiga Women": {"GP": 56, "HomeW%": 0.48, "Draw%": 0.16, "AwayW%": 0.36, "AvgGoals": 3.52, "AvgHG": 1.82, "AvgAG": 1.70},
-    "France - Ligue 1": {"GP": 99, "HomeW%": 0.52, "Draw%": 0.23, "AwayW%": 0.25, "AvgGoals": 2.93, "AvgHG": 1.77, "AvgAG": 1.16},
-    "France - Ligue 2": {"GP": 116, "HomeW%": 0.37, "Draw%": 0.29, "AwayW%": 0.34, "AvgGoals": 2.57, "AvgHG": 1.35, "AvgAG": 1.22},
-    "France - National": {"GP": 96, "HomeW%": 0.41, "Draw%": 0.32, "AwayW%": 0.27, "AvgGoals": 2.34, "AvgHG": 1.33, "AvgAG": 1.01},
-    "France - Premiere Ligue Women": {"GP": 36, "HomeW%": 0.53, "Draw%": 0.17, "AwayW%": 0.31, "AvgGoals": 3.44, "AvgHG": 1.97, "AvgAG": 1.47},
-    "Georgia - Erovnuli Liga": {"GP": 154, "HomeW%": 0.40, "Draw%": 0.25, "AwayW%": 0.36, "AvgGoals": 2.53, "AvgHG": 1.35, "AvgAG": 1.18},
-    "Georgia - Erovnuli Liga 2": {"GP": 155, "HomeW%": 0.37, "Draw%": 0.34, "AwayW%": 0.28, "AvgGoals": 2.41, "AvgHG": 1.29, "AvgAG": 1.12},
-    "Germany - Bundesliga": {"GP": 81, "HomeW%": 0.42, "Draw%": 0.20, "AwayW%": 0.38, "AvgGoals": 3.17, "AvgHG": 1.63, "AvgAG": 1.54},
-    "Germany - 2. Bundesliga": {"GP": 99, "HomeW%": 0.46, "Draw%": 0.19, "AwayW%": 0.34, "AvgGoals": 2.88, "AvgHG": 1.51, "AvgAG": 1.37},
-    "Germany - 3. Liga": {"GP": 130, "HomeW%": 0.45, "Draw%": 0.25, "AwayW%": 0.31, "AvgGoals": 3.18, "AvgHG": 1.71, "AvgAG": 1.47},
-    "Germany - Regionalliga Nord": {"GP": 149, "HomeW%": 0.44, "Draw%": 0.18, "AwayW%": 0.38, "AvgGoals": 3.75, "AvgHG": 2.01, "AvgAG": 1.74},
-    "Germany - Regionalliga Nordost": {"GP": 123, "HomeW%": 0.47, "Draw%": 0.24, "AwayW%": 0.29, "AvgGoals": 2.78, "AvgHG": 1.55, "AvgAG": 1.23},
-    "Germany - Regionalliga West": {"GP": 129, "HomeW%": 0.37, "Draw%": 0.27, "AwayW%": 0.36, "AvgGoals": 3.25, "AvgHG": 1.71, "AvgAG": 1.53},
-    "Germany - Regionalliga Sudwest": {"GP": 135, "HomeW%": 0.41, "Draw%": 0.27, "AwayW%": 0.33, "AvgGoals": 3.69, "AvgHG": 1.99, "AvgAG": 1.70},
-    "Germany - Regionalliga Bayern": {"GP": 141, "HomeW%": 0.40, "Draw%": 0.25, "AwayW%": 0.35, "AvgGoals": 3.09, "AvgHG": 1.57, "AvgAG": 1.52},
-    "Germany - Bundesliga Women": {"GP": 61, "HomeW%": 0.46, "Draw%": 0.16, "AwayW%": 0.38, "AvgGoals": 3.66, "AvgHG": 1.87, "AvgAG": 1.79},
-    "Germany - 2. Bundesliga Women": {"GP": 62, "HomeW%": 0.39, "Draw%": 0.29, "AwayW%": 0.32, "AvgGoals": 3.50, "AvgHG": 2.10, "AvgAG": 1.40},
-    "Gibraltar - Premier Division": {"GP": 56, "HomeW%": 0.39, "Draw%": 0.12, "AwayW%": 0.48, "AvgGoals": 3.61, "AvgHG": 1.73, "AvgAG": 1.88},
-    "Greece - Super League": {"GP": 62, "HomeW%": 0.44, "Draw%": 0.24, "AwayW%": 0.32, "AvgGoals": 2.77, "AvgHG": 1.52, "AvgAG": 1.26},
-    "Guatemala - Liga Nacional - Apertura": {"GP": 105, "HomeW%": 0.56, "Draw%": 0.22, "AwayW%": 0.22, "AvgGoals": 2.49, "AvgHG": 1.57, "AvgAG": 0.91},
-    "Guatemala - Liga Nacional - Clausura": {"GP": 110, "HomeW%": 0.55, "Draw%": 0.25, "AwayW%": 0.19, "AvgGoals": 2.42, "AvgHG": 1.51, "AvgAG": 0.91},
-    "Hong Kong - Premier League": {"GP": 108, "HomeW%": 0.43, "Draw%": 0.18, "AwayW%": 0.40, "AvgGoals": 3.62, "AvgHG": 1.90, "AvgAG": 1.72},
-    "Hungary - NB I": {"GP": 71, "HomeW%": 0.34, "Draw%": 0.31, "AwayW%": 0.35, "AvgGoals": 3.20, "AvgHG": 1.63, "AvgAG": 1.56},
-    "Hungary - NB II": {"GP": 96, "HomeW%": 0.51, "Draw%": 0.25, "AwayW%": 0.24, "AvgGoals": 2.63, "AvgHG": 1.50, "AvgAG": 1.13},
-    "Iceland - Besta deild": {"GP": 132, "HomeW%": 0.54, "Draw%": 0.22, "AwayW%": 0.24, "AvgGoals": 3.23, "AvgHG": 1.91, "AvgAG": 1.32},
-    "Iceland - 1. Deild": {"GP": 132, "HomeW%": 0.39, "Draw%": 0.20, "AwayW%": 0.41, "AvgGoals": 3.56, "AvgHG": 1.81, "AvgAG": 1.75},
-    "Iceland - 2. Deild": {"GP": 132, "HomeW%": 0.47, "Draw%": 0.17, "AwayW%": 0.36, "AvgGoals": 3.58, "AvgHG": 1.91, "AvgAG": 1.67},
-    "Iceland - Besta deild Women": {"GP": 111, "HomeW%": 0.52, "Draw%": 0.11, "AwayW%": 0.37, "AvgGoals": 3.83, "AvgHG": 2.10, "AvgAG": 1.73},
-    "India - Super League": {"GP": 156, "HomeW%": 0.42, "Draw%": 0.24, "AwayW%": 0.33, "AvgGoals": 2.87, "AvgHG": 1.49, "AvgAG": 1.38},
-    "India - I-League": {"GP": 132, "HomeW%": 0.43, "Draw%": 0.27, "AwayW%": 0.30, "AvgGoals": 3.17, "AvgHG": 1.83, "AvgAG": 1.34},
-    "Indonesia - Liga 1": {"GP": 89, "HomeW%": 0.39, "Draw%": 0.25, "AwayW%": 0.36, "AvgGoals": 2.53, "AvgHG": 1.36, "AvgAG": 1.17},
-    "Iran - Pro League": {"GP": 70, "HomeW%": 0.31, "Draw%": 0.43, "AwayW%": 0.26, "AvgGoals": 1.87, "AvgHG": 0.97, "AvgAG": 0.90},
-    "Ireland - Premier Division": {"GP": 180, "HomeW%": 0.43, "Draw%": 0.29, "AwayW%": 0.28, "AvgGoals": 2.43, "AvgHG": 1.38, "AvgAG": 1.05},
-    "Ireland - First Division": {"GP": 179, "HomeW%": 0.45, "Draw%": 0.23, "AwayW%": 0.32, "AvgGoals": 2.80, "AvgHG": 1.54, "AvgAG": 1.26},
-    "Ireland - Women National League": {"GP": 130, "HomeW%": 0.47, "Draw%": 0.12, "AwayW%": 0.41, "AvgGoals": 3.49, "AvgHG": 1.77, "AvgAG": 1.72},
-    "Israel - Ligat HaAl": {"GP": 63, "HomeW%": 0.41, "Draw%": 0.22, "AwayW%": 0.37, "AvgGoals": 3.08, "AvgHG": 1.62, "AvgAG": 1.46},
-    "Italy - Serie A": {"GP": 100, "HomeW%": 0.37, "Draw%": 0.33, "AwayW%": 0.30, "AvgGoals": 2.26, "AvgHG": 1.23, "AvgAG": 1.03},
-    "Italy - Serie B": {"GP": 109, "HomeW%": 0.42, "Draw%": 0.36, "AwayW%": 0.22, "AvgGoals": 2.57, "AvgHG": 1.48, "AvgAG": 1.09},
-    "Italy - Serie C - Group A": {"GP": 120, "HomeW%": 0.33, "Draw%": 0.34, "AwayW%": 0.32, "AvgGoals": 2.34, "AvgHG": 1.25, "AvgAG": 1.09},
-    "Italy - Serie C - Group B": {"GP": 120, "HomeW%": 0.36, "Draw%": 0.26, "AwayW%": 0.38, "AvgGoals": 2.29, "AvgHG": 1.13, "AvgAG": 1.16},
-    "Italy - Serie C - Group C": {"GP": 120, "HomeW%": 0.41, "Draw%": 0.29, "AwayW%": 0.30, "AvgGoals": 2.63, "AvgHG": 1.51, "AvgAG": 1.12},
-    "Italy - Serie A Women": {"GP": 24, "HomeW%": 0.50, "Draw%": 0.17, "AwayW%": 0.33, "AvgGoals": 3.00, "AvgHG": 1.79, "AvgAG": 1.21},
-    "Jamaica - Premier League": {"GP": 56, "HomeW%": 0.36, "Draw%": 0.29, "AwayW%": 0.36, "AvgGoals": 2.57, "AvgHG": 1.34, "AvgAG": 1.23},
-    "Japan - J1 League": {"GP": 350, "HomeW%": 0.44, "Draw%": 0.26, "AwayW%": 0.30, "AvgGoals": 2.39, "AvgHG": 1.31, "AvgAG": 1.08},
-    "Japan - J2 League": {"GP": 350, "HomeW%": 0.37, "Draw%": 0.28, "AwayW%": 0.35, "AvgGoals": 2.45, "AvgHG": 1.26, "AvgAG": 1.19},
-    "Japan - J3 League": {"GP": 340, "HomeW%": 0.46, "Draw%": 0.24, "AwayW%": 0.30, "AvgGoals": 2.52, "AvgHG": 1.39, "AvgAG": 1.13},
-    "Japan - WE League": {"GP": 73, "HomeW%": 0.42, "Draw%": 0.25, "AwayW%": 0.33, "AvgGoals": 2.70, "AvgHG": 1.56, "AvgAG": 1.14},
-    "Japan - Nadeshiko League 1": {"GP": 132, "HomeW%": 0.42, "Draw%": 0.30, "AwayW%": 0.28, "AvgGoals": 2.56, "AvgHG": 1.41, "AvgAG": 1.15},
-    "Jordan - Premier League": {"GP": 49, "HomeW%": 0.41, "Draw%": 0.20, "AwayW%": 0.39, "AvgGoals": 2.59, "AvgHG": 1.27, "AvgAG": 1.33},
-    "Kazakhstan - Premier League": {"GP": 182, "HomeW%": 0.42, "Draw%": 0.28, "AwayW%": 0.30, "AvgGoals": 2.73, "AvgHG": 1.52, "AvgAG": 1.20},
-    "Kuwait - Premier League": {"GP": 35, "HomeW%": 0.34, "Draw%": 0.29, "AwayW%": 0.37, "AvgGoals": 2.14, "AvgHG": 1.09, "AvgAG": 1.06},
-    "Latvia - Virsliga": {"GP": 175, "HomeW%": 0.46, "Draw%": 0.23, "AwayW%": 0.31, "AvgGoals": 2.94, "AvgHG": 1.66, "AvgAG": 1.28},
-    "Latvia - 1. Liga": {"GP": 175, "HomeW%": 0.45, "Draw%": 0.21, "AwayW%": 0.34, "AvgGoals": 3.29, "AvgHG": 1.82, "AvgAG": 1.47},
-    "Lithuania - A Lyga": {"GP": 175, "HomeW%": 0.41, "Draw%": 0.23, "AwayW%": 0.36, "AvgGoals": 2.66, "AvgHG": 1.43, "AvgAG": 1.23},
-    "Lithuania - 1st League": {"GP": 232, "HomeW%": 0.39, "Draw%": 0.17, "AwayW%": 0.44, "AvgGoals": 3.02, "AvgHG": 1.47, "AvgAG": 1.55},
-    "Malaysia - Super League": {"GP": 52, "HomeW%": 0.40, "Draw%": 0.27, "AwayW%": 0.33, "AvgGoals": 3.35, "AvgHG": 1.87, "AvgAG": 1.48},
-    "Mexico - Liga MX - Apertura": {"GP": 144, "HomeW%": 0.47, "Draw%": 0.26, "AwayW%": 0.28, "AvgGoals": 3.10, "AvgHG": 1.78, "AvgAG": 1.33},
-    "Mexico - Liga MX - Clausura": {"GP": 153, "HomeW%": 0.48, "Draw%": 0.20, "AwayW%": 0.31, "AvgGoals": 2.86, "AvgHG": 1.56, "AvgAG": 1.30},
-    "Moldova - Divizia Nationala": {"GP": 72, "HomeW%": 0.43, "Draw%": 0.18, "AwayW%": 0.39, "AvgGoals": 3.11, "AvgHG": 1.64, "AvgAG": 1.47},
-    "Montenegro - First League": {"GP": 66, "HomeW%": 0.45, "Draw%": 0.30, "AwayW%": 0.24, "AvgGoals": 2.73, "AvgHG": 1.64, "AvgAG": 1.09},
-    "Morocco - Botola Pro": {"GP": 54, "HomeW%": 0.37, "Draw%": 0.37, "AwayW%": 0.26, "AvgGoals": 2.22, "AvgHG": 1.17, "AvgAG": 1.06},
-    "Netherlands - Eredivisie": {"GP": 99, "HomeW%": 0.48, "Draw%": 0.21, "AwayW%": 0.30, "AvgGoals": 3.43, "AvgHG": 1.90, "AvgAG": 1.54},
-    "Netherlands - Eerste Divisie": {"GP": 138, "HomeW%": 0.45, "Draw%": 0.21, "AwayW%": 0.34, "AvgGoals": 3.23, "AvgHG": 1.80, "AvgAG": 1.43},
-    "Netherlands - Tweede Divisie": {"GP": 98, "HomeW%": 0.49, "Draw%": 0.17, "AwayW%": 0.34, "AvgGoals": 3.19, "AvgHG": 1.77, "AvgAG": 1.43},
-    "Netherlands - Eredivisie Women": {"GP": 36, "HomeW%": 0.33, "Draw%": 0.14, "AwayW%": 0.53, "AvgGoals": 3.56, "AvgHG": 1.72, "AvgAG": 1.83},
-    "Northern Ireland - NIFL Premiership": {"GP": 77, "HomeW%": 0.49, "Draw%": 0.10, "AwayW%": 0.40, "AvgGoals": 2.65, "AvgHG": 1.39, "AvgAG": 1.26},
-    "Northern Ireland - NIFL Championship": {"GP": 84, "HomeW%": 0.43, "Draw%": 0.26, "AwayW%": 0.31, "AvgGoals": 2.85, "AvgHG": 1.54, "AvgAG": 1.31},
-    "North Macedonia - First League": {"GP": 70, "HomeW%": 0.44, "Draw%": 0.21, "AwayW%": 0.34, "AvgGoals": 3.01, "AvgHG": 1.64, "AvgAG": 1.37},
-    "Norway - Eliteserien": {"GP": 216, "HomeW%": 0.48, "Draw%": 0.20, "AwayW%": 0.32, "AvgGoals": 3.16, "AvgHG": 1.76, "AvgAG": 1.39},
-    "Norway - 1st Division": {"GP": 232, "HomeW%": 0.41, "Draw%": 0.26, "AwayW%": 0.33, "AvgGoals": 3.22, "AvgHG": 1.67, "AvgAG": 1.54},
-    "Norway - Division 2 - Gr. 1": {"GP": 182, "HomeW%": 0.46, "Draw%": 0.30, "AwayW%": 0.24, "AvgGoals": 3.37, "AvgHG": 1.99, "AvgAG": 1.38},
-    "Norway - Division 2 - Gr. 2": {"GP": 182, "HomeW%": 0.51, "Draw%": 0.14, "AwayW%": 0.35, "AvgGoals": 3.70, "AvgHG": 2.08, "AvgAG": 1.62},
-    "Norway - Toppserien Women": {"GP": 125, "HomeW%": 0.50, "Draw%": 0.14, "AwayW%": 0.36, "AvgGoals": 3.16, "AvgHG": 1.81, "AvgAG": 1.35},
-    "Norway - 1. Division Women": {"GP": 132, "HomeW%": 0.48, "Draw%": 0.22, "AwayW%": 0.30, "AvgGoals": 3.21, "AvgHG": 1.81, "AvgAG": 1.40},
-    "Paraguay - Primera Div. - Apertura": {"GP": 132, "HomeW%": 0.33, "Draw%": 0.36, "AwayW%": 0.32, "AvgGoals": 2.18, "AvgHG": 1.06, "AvgAG": 1.12},
-    "Paraguay - Primera Div. - Clausura": {"GP": 114, "HomeW%": 0.42, "Draw%": 0.27, "AwayW%": 0.31, "AvgGoals": 2.60, "AvgHG": 1.42, "AvgAG": 1.18},
-    "Peru - Liga 1 - Apertura": {"GP": 171, "HomeW%": 0.49, "Draw%": 0.26, "AwayW%": 0.26, "AvgGoals": 2.71, "AvgHG": 1.65, "AvgAG": 1.06},
-    "Peru - Liga 1 - Clausura": {"GP": 142, "HomeW%": 0.47, "Draw%": 0.25, "AwayW%": 0.28, "AvgGoals": 2.52, "AvgHG": 1.49, "AvgAG": 1.03},
-    "Poland - Ekstraklasa": {"GP": 121, "HomeW%": 0.49, "Draw%": 0.28, "AwayW%": 0.23, "AvgGoals": 2.88, "AvgHG": 1.71, "AvgAG": 1.17},
-    "Poland - 1. Liga": {"GP": 134, "HomeW%": 0.44, "Draw%": 0.28, "AwayW%": 0.28, "AvgGoals": 3.10, "AvgHG": 1.72, "AvgAG": 1.38},
-    "Poland - 2. Liga": {"GP": 135, "HomeW%": 0.38, "Draw%": 0.31, "AwayW%": 0.31, "AvgGoals": 3.02, "AvgHG": 1.57, "AvgAG": 1.45},
-    "Poland - Ekstraliga Women": {"GP": 57, "HomeW%": 0.46, "Draw%": 0.16, "AwayW%": 0.39, "AvgGoals": 3.18, "AvgHG": 1.68, "AvgAG": 1.49},
-    "Portugal - Liga Portugal": {"GP": 90, "HomeW%": 0.37, "Draw%": 0.24, "AwayW%": 0.39, "AvgGoals": 2.66, "AvgHG": 1.37, "AvgAG": 1.29},
-    "Portugal - Liga Portugal 2": {"GP": 87, "HomeW%": 0.39, "Draw%": 0.29, "AwayW%": 0.32, "AvgGoals": 2.61, "AvgHG": 1.36, "AvgAG": 1.25},
-    "Portugal - First Division Women": {"GP": 25, "HomeW%": 0.24, "Draw%": 0.28, "AwayW%": 0.48, "AvgGoals": 3.20, "AvgHG": 1.40, "AvgAG": 1.80},
-    "Qatar - Stars League": {"GP": 49, "HomeW%": 0.53, "Draw%": 0.16, "AwayW%": 0.31, "AvgGoals": 3.20, "AvgHG": 1.76, "AvgAG": 1.45},
-    "Qatar - Division 2": {"GP": 20, "HomeW%": 0.45, "Draw%": 0.25, "AwayW%": 0.30, "AvgGoals": 3.00, "AvgHG": 1.55, "AvgAG": 1.45},
-    "Romania - Liga 1": {"GP": 120, "HomeW%": 0.38, "Draw%": 0.32, "AwayW%": 0.29, "AvgGoals": 2.56, "AvgHG": 1.38, "AvgAG": 1.18},
-    "Romania - Liga 2": {"GP": 131, "HomeW%": 0.47, "Draw%": 0.22, "AwayW%": 0.31, "AvgGoals": 2.78, "AvgHG": 1.62, "AvgAG": 1.16},
-    "Romania - Superliga Women": {"GP": 40, "HomeW%": 0.50, "Draw%": 0.20, "AwayW%": 0.30, "AvgGoals": 3.33, "AvgHG": 1.95, "AvgAG": 1.38},
-    "Russia - Premier League": {"GP": 112, "HomeW%": 0.46, "Draw%": 0.30, "AwayW%": 0.24, "AvgGoals": 2.64, "AvgHG": 1.46, "AvgAG": 1.18},
-    "Russia - FNL": {"GP": 153, "HomeW%": 0.41, "Draw%": 0.33, "AwayW%": 0.26, "AvgGoals": 2.29, "AvgHG": 1.28, "AvgAG": 1.01},
-    "Rwanda - Premier League": {"GP": 46, "HomeW%": 0.35, "Draw%": 0.37, "AwayW%": 0.28, "AvgGoals": 1.67, "AvgHG": 0.85, "AvgAG": 0.83},
-    "SanMarino - Campionato Sammarinese": {"GP": 64, "HomeW%": 0.42, "Draw%": 0.23, "AwayW%": 0.34, "AvgGoals": 2.73, "AvgHG": 1.38, "AvgAG": 1.36},
-    "Saudi Arabia - Professional League": {"GP": 63, "HomeW%": 0.40, "Draw%": 0.24, "AwayW%": 0.37, "AvgGoals": 3.10, "AvgHG": 1.62, "AvgAG": 1.48},
-    "Saudi Arabia - Division 1": {"GP": 61, "HomeW%": 0.30, "Draw%": 0.26, "AwayW%": 0.44, "AvgGoals": 2.87, "AvgHG": 1.25, "AvgAG": 1.62},
-    "Scotland - Premiership": {"GP": 63, "HomeW%": 0.37, "Draw%": 0.35, "AwayW%": 0.29, "AvgGoals": 2.73, "AvgHG": 1.57, "AvgAG": 1.16},
-    "Scotland - Championship": {"GP": 65, "HomeW%": 0.35, "Draw%": 0.35, "AwayW%": 0.29, "AvgGoals": 2.42, "AvgHG": 1.31, "AvgAG": 1.11},
-    "Scotland - League One": {"GP": 60, "HomeW%": 0.42, "Draw%": 0.18, "AwayW%": 0.40, "AvgGoals": 2.55, "AvgHG": 1.28, "AvgAG": 1.27},
-    "Scotland - League Two": {"GP": 55, "HomeW%": 0.35, "Draw%": 0.25, "AwayW%": 0.40, "AvgGoals": 3.00, "AvgHG": 1.49, "AvgAG": 1.51},
-    "Scotland - SWPL 1 Women": {"GP": 50, "HomeW%": 0.44, "Draw%": 0.12, "AwayW%": 0.44, "AvgGoals": 3.96, "AvgHG": 2.16, "AvgAG": 1.80},
-    "Serbia - Super Liga": {"GP": 110, "HomeW%": 0.50, "Draw%": 0.24, "AwayW%": 0.26, "AvgGoals": 2.91, "AvgHG": 1.67, "AvgAG": 1.24},
-    "Serbia - Prva Liga": {"GP": 127, "HomeW%": 0.42, "Draw%": 0.33, "AwayW%": 0.25, "AvgGoals": 2.30, "AvgHG": 1.36, "AvgAG": 0.94},
-    "Singapore - Premier League": {"GP": 19, "HomeW%": 0.32, "Draw%": 0.16, "AwayW%": 0.53, "AvgGoals": 3.63, "AvgHG": 1.42, "AvgAG": 2.21},
-    "Slovakia - 1. Liga": {"GP": 76, "HomeW%": 0.37, "Draw%": 0.26, "AwayW%": 0.37, "AvgGoals": 3.05, "AvgHG": 1.54, "AvgAG": 1.51},
-    "Slovakia - 2. Liga": {"GP": 121, "HomeW%": 0.50, "Draw%": 0.24, "AwayW%": 0.26, "AvgGoals": 3.12, "AvgHG": 1.78, "AvgAG": 1.35},
-    "Slovakia - 1.Liga Women": {"GP": 58, "HomeW%": 0.41, "Draw%": 0.16, "AwayW%": 0.43, "AvgGoals": 3.62, "AvgHG": 1.91, "AvgAG": 1.71},
-    "Slovenia - Prva Liga": {"GP": 70, "HomeW%": 0.43, "Draw%": 0.21, "AwayW%": 0.36, "AvgGoals": 3.20, "AvgHG": 1.64, "AvgAG": 1.56},
-    "South Africa - Premier Division": {"GP": 93, "HomeW%": 0.53, "Draw%": 0.25, "AwayW%": 0.23, "AvgGoals": 2.00, "AvgHG": 1.19, "AvgAG": 0.81},
-    "South Africa - First Division": {"GP": 78, "HomeW%": 0.42, "Draw%": 0.32, "AwayW%": 0.26, "AvgGoals": 2.15, "AvgHG": 1.22, "AvgAG": 0.94},
-    "South Korea - K League 1": {"GP": 198, "HomeW%": 0.42, "Draw%": 0.26, "AwayW%": 0.32, "AvgGoals": 2.59, "AvgHG": 1.39, "AvgAG": 1.20},
-    "South Korea - K League 2": {"GP": 259, "HomeW%": 0.35, "Draw%": 0.30, "AwayW%": 0.35, "AvgGoals": 2.52, "AvgHG": 1.32, "AvgAG": 1.20},
-    "South Korea - WK League Women": {"GP": 112, "HomeW%": 0.41, "Draw%": 0.29, "AwayW%": 0.30, "AvgGoals": 2.63, "AvgHG": 1.40, "AvgAG": 1.23},
-    "Spain - LaLiga": {"GP": 110, "HomeW%": 0.48, "Draw%": 0.25, "AwayW%": 0.26, "AvgGoals": 2.66, "AvgHG": 1.53, "AvgAG": 1.14},
-    "Spain - LaLiga2": {"GP": 132, "HomeW%": 0.42, "Draw%": 0.29, "AwayW%": 0.29, "AvgGoals": 2.48, "AvgHG": 1.37, "AvgAG": 1.11},
-    "Spain - Liga F Women": {"GP": 72, "HomeW%": 0.32, "Draw%": 0.32, "AwayW%": 0.36, "AvgGoals": 2.63, "AvgHG": 1.24, "AvgAG": 1.39},
-    "Spain - Primera F. Women": {"GP": 56, "HomeW%": 0.48, "Draw%": 0.23, "AwayW%": 0.29, "AvgGoals": 2.38, "AvgHG": 1.45, "AvgAG": 0.93},
-    "Sweden - Allsvenskan": {"GP": 232, "HomeW%": 0.39, "Draw%": 0.23, "AwayW%": 0.38, "AvgGoals": 2.84, "AvgHG": 1.47, "AvgAG": 1.38},
-    "Sweden - Superettan": {"GP": 232, "HomeW%": 0.42, "Draw%": 0.27, "AwayW%": 0.31, "AvgGoals": 2.82, "AvgHG": 1.58, "AvgAG": 1.24},
-    "Sweden - Div 1 - Norra": {"GP": 232, "HomeW%": 0.47, "Draw%": 0.19, "AwayW%": 0.34, "AvgGoals": 3.36, "AvgHG": 1.89, "AvgAG": 1.47},
-    "Sweden - Div 1 - Sodra": {"GP": 232, "HomeW%": 0.45, "Draw%": 0.23, "AwayW%": 0.32, "AvgGoals": 3.00, "AvgHG": 1.65, "AvgAG": 1.34},
-    "Sweden - Allsvenskan Women": {"GP": 168, "HomeW%": 0.47, "Draw%": 0.14, "AwayW%": 0.39, "AvgGoals": 3.32, "AvgHG": 1.69, "AvgAG": 1.63},
-    "Sweden - Elitetan Women": {"GP": 167, "HomeW%": 0.44, "Draw%": 0.17, "AwayW%": 0.38, "AvgGoals": 3.15, "AvgHG": 1.69, "AvgAG": 1.46},
-    "Switzerland - Super League": {"GP": 71, "HomeW%": 0.45, "Draw%": 0.20, "AwayW%": 0.35, "AvgGoals": 3.42, "AvgHG": 1.99, "AvgAG": 1.44},
-    "Switzerland - Challenge League": {"GP": 60, "HomeW%": 0.50, "Draw%": 0.20, "AwayW%": 0.30, "AvgGoals": 2.95, "AvgHG": 1.62, "AvgAG": 1.33},
-    "Switzerland - Women Super League": {"GP": 45, "HomeW%": 0.38, "Draw%": 0.22, "AwayW%": 0.40, "AvgGoals": 3.02, "AvgHG": 1.42, "AvgAG": 1.60},
-    "Thailand - Thai League 1": {"GP": 78, "HomeW%": 0.40, "Draw%": 0.32, "AwayW%": 0.28, "AvgGoals": 2.76, "AvgHG": 1.56, "AvgAG": 1.19},
-    "Turkey - Super Lig": {"GP": 99, "HomeW%": 0.37, "Draw%": 0.28, "AwayW%": 0.34, "AvgGoals": 2.52, "AvgHG": 1.23, "AvgAG": 1.28},
-    "Turkey - 1. Lig": {"GP": 120, "HomeW%": 0.41, "Draw%": 0.34, "AwayW%": 0.25, "AvgGoals": 2.83, "AvgHG": 1.57, "AvgAG": 1.27},
-    "Turkey - 2. Lig White Group": {"GP": 99, "HomeW%": 0.38, "Draw%": 0.21, "AwayW%": 0.40, "AvgGoals": 2.80, "AvgHG": 1.33, "AvgAG": 1.46},
-    "Turkey - 2. Lig Red Group": {"GP": 99, "HomeW%": 0.48, "Draw%": 0.24, "AwayW%": 0.27, "AvgGoals": 3.14, "AvgHG": 1.74, "AvgAG": 1.40},
-    "Turkey - 3. Lig Group 1": {"GP": 72, "HomeW%": 0.38, "Draw%": 0.19, "AwayW%": 0.43, "AvgGoals": 2.44, "AvgHG": 1.18, "AvgAG": 1.26},
-    "Turkey - 3. Lig Group 2": {"GP": 72, "HomeW%": 0.31, "Draw%": 0.44, "AwayW%": 0.25, "AvgGoals": 2.32, "AvgHG": 1.19, "AvgAG": 1.13},
-    "Turkey - 3. Lig Group 3": {"GP": 72, "HomeW%": 0.43, "Draw%": 0.28, "AwayW%": 0.29, "AvgGoals": 2.71, "AvgHG": 1.50, "AvgAG": 1.21},
-    "Turkey - 3. Lig Group 4": {"GP": 72, "HomeW%": 0.44, "Draw%": 0.26, "AwayW%": 0.29, "AvgGoals": 2.69, "AvgHG": 1.49, "AvgAG": 1.21},
-    "UAE - Pro League": {"GP": 49, "HomeW%": 0.43, "Draw%": 0.18, "AwayW%": 0.39, "AvgGoals": 2.45, "AvgHG": 1.31, "AvgAG": 1.14},
-    "Ukraine - Premier League": {"GP": 88, "HomeW%": 0.34, "Draw%": 0.28, "AwayW%": 0.38, "AvgGoals": 2.57, "AvgHG": 1.23, "AvgAG": 1.34},
-    "Ukraine - Persha Liga": {"GP": 109, "HomeW%": 0.39, "Draw%": 0.24, "AwayW%": 0.38, "AvgGoals": 2.23, "AvgHG": 1.13, "AvgAG": 1.10},
-    "Uruguay - Liga AUF Uruguaya - Apertura": {"GP": 120, "HomeW%": 0.35, "Draw%": 0.32, "AwayW%": 0.33, "AvgGoals": 2.27, "AvgHG": 1.17, "AvgAG": 1.10},
-    "Uruguay - Liga AUF Uruguaya - Intermediate": {"GP": 56, "HomeW%": 0.54, "Draw%": 0.23, "AwayW%": 0.23, "AvgGoals": 2.59, "AvgHG": 1.57, "AvgAG": 1.02},
-    "Uruguay - Liga AUF Uruguaya - Clausura": {"GP": 112, "HomeW%": 0.43, "Draw%": 0.25, "AwayW%": 0.32, "AvgGoals": 2.31, "AvgHG": 1.29, "AvgAG": 1.03},
-    "USA - MLS": {"GP": 510, "HomeW%": 0.44, "Draw%": 0.25, "AwayW%": 0.31, "AvgGoals": 3.00, "AvgHG": 1.64, "AvgAG": 1.36},
-    "USA - USL Championship": {"GP": 360, "HomeW%": 0.44, "Draw%": 0.26, "AwayW%": 0.29, "AvgGoals": 2.70, "AvgHG": 1.51, "AvgAG": 1.19},
-    "USA - USL League One": {"GP": 210, "HomeW%": 0.45, "Draw%": 0.29, "AwayW%": 0.26, "AvgGoals": 2.84, "AvgHG": 1.61, "AvgAG": 1.23},
-    "USA - NWSL": {"GP": 182, "HomeW%": 0.39, "Draw%": 0.28, "AwayW%": 0.33, "AvgGoals": 2.66, "AvgHG": 1.40, "AvgAG": 1.26},
-    "USA - USL Super League": {"GP": 40, "HomeW%": 0.28, "Draw%": 0.45, "AwayW%": 0.28, "AvgGoals": 3.10, "AvgHG": 1.70, "AvgAG": 1.40},
-    "Venezuela - Liga FUTVE - Apertura": {"GP": 91, "HomeW%": 0.45, "Draw%": 0.29, "AwayW%": 0.26, "AvgGoals": 2.29, "AvgHG": 1.25, "AvgAG": 1.03},
-    "Venezuela - Liga FUTVE - Clausura": {"GP": 91, "HomeW%": 0.54, "Draw%": 0.18, "AwayW%": 0.29, "AvgGoals": 2.38, "AvgHG": 1.46, "AvgAG": 0.92},
-    "Vietnam - V League": {"GP": 67, "HomeW%": 0.42, "Draw%": 0.31, "AwayW%": 0.27, "AvgGoals": 2.55, "AvgHG": 1.40, "AvgAG": 1.15},
-    "Vietnam - National League Women": {"GP": 30, "HomeW%": 0.37, "Draw%": 0.27, "AwayW%": 0.37, "AvgGoals": 2.07, "AvgHG": 1.00, "AvgAG": 1.07},
-    "Wales - Cymru Premier": {"GP": 88, "HomeW%": 0.33, "Draw%": 0.25, "AwayW%": 0.42, "AvgGoals": 3.13, "AvgHG": 1.57, "AvgAG": 1.56},
-}
+# --- League Statistical Data Loader ---
+LEAGUE_STATS_PATH = Path(__file__).resolve().parent / "data" / "league_stats.json"
+
+
+def normalize_league_key(name: str) -> str:
+    # Ensure league names use a consistent format for lookups.
+    return re.sub(r"\s+", " ", str(name)).strip()
+
+
+@st.cache_data
+def load_league_stats(path: str = str(LEAGUE_STATS_PATH)):
+    # Load league statistics from a JSON or CSV source.
+    path_obj = Path(path)
+    if not path_obj.exists():
+        return {}
+
+    if path_obj.suffix.lower() == ".csv":
+        df = pd.read_csv(path_obj)
+        raw_data = {}
+        for _, row in df.iterrows():
+            row_dict = row.to_dict()
+            league_name = normalize_league_key(row_dict.pop("League", ""))
+            if not league_name:
+                continue
+            raw_data[league_name] = row_dict
+    else:
+        with path_obj.open("r", encoding="utf-8") as file:
+            raw_data = json.load(file)
+
+    league_stats = {}
+    for league_name, stats in raw_data.items():
+        if not isinstance(stats, dict):
+            continue
+        normalized_name = normalize_league_key(league_name)
+        league_stats[normalized_name] = {str(key): value for key, value in stats.items()}
+
+    return league_stats
+
+
+
 
 # --- League Mapping ("Rosetta Stone") ---
-# Maps (country_key, league_code) from leagues_data to the string key in SOCCERSTATS_DATA
+# Maps (country_key, league_code) from leagues_data to the string key in the loaded stats
 LEAGUE_STATS_MAP = {
     ("Albania", "AL1"): "Albania - Abissnet Superiore",
     ("Andorra", "AD1"): "Andorra - Primera Divisio",
@@ -822,14 +633,17 @@ def fetch_team_page_data(team_name, team_url):
 
 def get_league_stats(country_key, league_code):
     """
-    Retrieves the hardcoded stats for a given league using the mapping.
+    Retrieves the stored stats for a given league using the mapping.
     Returns a dictionary of the stats.
     """
     map_key = (country_key, league_code)
     league_name = LEAGUE_STATS_MAP.get(map_key)
     
+    stats_data = load_league_stats()
+
     if league_name:
-        stats = SOCCERSTATS_DATA.get(league_name)
+        normalized_league_name = normalize_league_key(league_name)
+        stats = stats_data.get(normalized_league_name)
         if stats:
             # Add league name to the dict for display
             stats_processed = stats.copy()
@@ -843,10 +657,13 @@ def get_league_stats(country_key, league_code):
         primary_league_code = leagues_data[country_key][primary_league_code_key][0]
         map_key = (country_key, primary_league_code)
         league_name = LEAGUE_STATS_MAP.get(map_key)
-        if league_name and SOCCERSTATS_DATA.get(league_name):
-            stats = SOCCERSTATS_DATA.get(league_name).copy()
-            stats["League"] = league_name
-            return stats
+        if league_name:
+            normalized_league_name = normalize_league_key(league_name)
+            stats = stats_data.get(normalized_league_name)
+            if stats:
+                stats_copy = stats.copy()
+                stats_copy["League"] = league_name
+                return stats_copy
 
     return None
 
