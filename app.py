@@ -34,8 +34,19 @@ BASE_HEADERS = {
 
 DEFAULT_DRAW_RATE = 0.27
 DEFAULT_AVG_GOALS = 2.6
-# Weight given to the observed league draw rate when blending with the Poisson model
-DRAW_OBS_WEIGHT = 0.87
+# Optional weight for blending the observed league draw rate back into the
+# Poisson-derived draw probability. Default keeps the Poisson result.
+DRAW_OBS_WEIGHT = 0.0
+# Global multiplier applied to the Bradley-Terry draw ratio. Values above 1
+# lift draw probabilities (default bumps them ~10%), values below 1 trim them.
+DRAW_RATE_SCALE = 1.1
+
+# Elo-based scaling parameters for adjusting the expected goal total before
+# computing the Poisson draw probability. The factor is applied to the rating
+# gap (normalised by the divisor) and capped to avoid extreme totals.
+ELO_GOAL_SCALE_FACTOR = 0.35
+ELO_GOAL_SCALE_DIVISOR = 400
+ELO_GOAL_SCALE_CAP = 0.6
 
 
 def modified_bessel_i0(x: float) -> float:
@@ -754,17 +765,24 @@ def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob, av
     rating_diff = safe_float(home_rating, 0) - safe_float(away_rating, 0)
     strength_ratio = 10 ** (rating_diff / 400)
 
-    # Blend observed draw rate with Poisson-implied parity draw for the league's scoring environment.
-    mu = safe_float(avg_goals, DEFAULT_AVG_GOALS)
-    mu = max(mu, 0)
-    poisson_draw = math.exp(-mu) * modified_bessel_i0(mu)
+    # Adjust the league scoring environment by scaling the average goals with
+    # the Elo rating gap before computing the Poisson draw probability.
+    mu = max(safe_float(avg_goals, DEFAULT_AVG_GOALS), 0)
+    rating_gap = abs(rating_diff)
+    gap_ratio = rating_gap / ELO_GOAL_SCALE_DIVISOR if ELO_GOAL_SCALE_DIVISOR else 0
+    goal_scale = 1 + min(gap_ratio * ELO_GOAL_SCALE_FACTOR, ELO_GOAL_SCALE_CAP)
+    mu_adjusted = mu * goal_scale
+    poisson_draw = math.exp(-mu_adjusted) * modified_bessel_i0(mu_adjusted)
 
-    alpha = min(max(draw_weight, 0.0), 1.0)
+    alpha = 0.0 if draw_weight is None else min(max(draw_weight, 0.0), 1.0)
     observed_draw = min(max(safe_float(base_draw_prob, DEFAULT_DRAW_RATE), 0.0), 0.95)
-    blended_draw = alpha * observed_draw + (1 - alpha) * poisson_draw
+    blended_draw = poisson_draw if alpha == 0 else (
+        alpha * observed_draw + (1 - alpha) * poisson_draw
+    )
     blended_draw = min(max(blended_draw, 1e-6), 0.999999)
 
     nu = blended_draw / (1 - blended_draw)
+    nu = max(nu * max(DRAW_RATE_SCALE, 1e-6), 0.0)
 
     denominator = strength_ratio + 1 + (2 * nu)
     if denominator == 0:
