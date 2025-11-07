@@ -35,7 +35,7 @@ BASE_HEADERS = {
 DEFAULT_DRAW_RATE = 0.27
 DEFAULT_AVG_GOALS = 2.6
 # Weight given to the observed league draw rate when blending with the Poisson model
-DRAW_OBS_WEIGHT = 0.7
+DRAW_OBS_WEIGHT = 0.87
 
 
 def modified_bessel_i0(x: float) -> float:
