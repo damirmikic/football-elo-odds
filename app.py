@@ -33,8 +33,69 @@ BASE_HEADERS = {
 }
 
 DEFAULT_DRAW_RATE = 0.27
-# A 400-point Elo diff will reduce the draw prob by ~44%
-DRAW_DECAY_FACTOR = 0.0035
+DEFAULT_AVG_GOALS = 2.6
+# Weight given to the observed league draw rate when blending with the Poisson model
+DRAW_OBS_WEIGHT = 0.7
+
+
+def modified_bessel_i0(x: float) -> float:
+    """Compute the modified Bessel function I0 with a pure-Python fallback."""
+
+    if hasattr(math, "i0"):
+        return math.i0(x)
+
+    ax = abs(x)
+    if ax == 0.0:
+        return 1.0
+
+    if ax < 3.75:
+        y = (x / 3.75) ** 2
+        return 1.0 + y * (
+            3.5156229
+            + y
+            * (
+                3.0899424
+                + y
+                * (
+                    1.2067492
+                    + y
+                    * (
+                        0.2659732
+                        + y * (0.0360768 + y * 0.0045813)
+                    )
+                )
+            )
+        )
+
+    y = 3.75 / ax
+    return (math.exp(ax) / math.sqrt(ax)) * (
+        0.39894228
+        + y
+        * (
+            0.01328592
+            + y
+            * (
+                0.00225319
+                + y
+                * (
+                    -0.00157565
+                    + y
+                    * (
+                        0.00916281
+                        + y
+                        * (
+                            -0.02057706
+                            + y
+                            * (
+                                0.02635537
+                                + y * (-0.01647633 + y * 0.00392377)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    )
 
 
 # --- League Statistical Data Loader ---
@@ -667,38 +728,57 @@ def get_league_stats(country_key, league_code):
 
     return None
 
-def get_league_suggested_draw_rate(country_key, league_code):
+def get_league_suggested_draw_rate(country_key, league_code, stats=None):
     """
     Analyzes the league table to suggest a realistic draw rate.
     Returns a suggested draw probability based on league data.
     """
-    stats = get_league_stats(country_key, league_code)
+    stats = stats or get_league_stats(country_key, league_code)
     if stats and 'Draw%' in stats:
         return safe_float(stats['Draw%'], DEFAULT_DRAW_RATE)
-    
+
     return DEFAULT_DRAW_RATE
 
-def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob):
-    """
-    Calculates home, draw, and away probabilities using an Elo-based dynamic draw rate.
-    """
-    home_advantage = 0
-    adjusted_rating_diff = home_rating - away_rating + home_advantage
-    
-    # Elo-based draw model: Reduce draw prob based on Elo difference
-    elo_diff = abs(adjusted_rating_diff)
-    draw_probability = base_draw_prob * math.exp(-elo_diff * DRAW_DECAY_FACTOR)
-    
-    p_home_vs_away = 1 / (1 + 10**(-adjusted_rating_diff / 400))
-    
-    remaining_prob = 1 - draw_probability
-    p_home = p_home_vs_away * remaining_prob
-    p_away = (1 - p_home_vs_away) * remaining_prob
-    
-    # Normalize to ensure sum is 1 (it should be, but good practice)
-    total = p_home + draw_probability + p_away
-    if total == 0: return 0, 0, 0
-    return p_home / total, draw_probability / total, p_away / total
+
+def get_league_average_goals(country_key, league_code, stats=None):
+    """Return the league's average total goals per match for draw calibration."""
+    stats = stats or get_league_stats(country_key, league_code)
+    if stats and 'AvgGoals' in stats:
+        return safe_float(stats['AvgGoals'], DEFAULT_AVG_GOALS)
+
+    return DEFAULT_AVG_GOALS
+
+def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob, avg_goals, draw_weight=DRAW_OBS_WEIGHT):
+    """Calculate 1X2 probabilities via Bradley-Terry-Davidson anchored to league scoring."""
+
+    rating_diff = safe_float(home_rating, 0) - safe_float(away_rating, 0)
+    strength_ratio = 10 ** (rating_diff / 400)
+
+    # Blend observed draw rate with Poisson-implied parity draw for the league's scoring environment.
+    mu = safe_float(avg_goals, DEFAULT_AVG_GOALS)
+    mu = max(mu, 0)
+    poisson_draw = math.exp(-mu) * modified_bessel_i0(mu)
+
+    alpha = min(max(draw_weight, 0.0), 1.0)
+    observed_draw = min(max(safe_float(base_draw_prob, DEFAULT_DRAW_RATE), 0.0), 0.95)
+    blended_draw = alpha * observed_draw + (1 - alpha) * poisson_draw
+    blended_draw = min(max(blended_draw, 1e-6), 0.999999)
+
+    nu = blended_draw / (1 - blended_draw)
+
+    denominator = strength_ratio + 1 + (2 * nu)
+    if denominator == 0:
+        return 0.0, 0.0, 0.0
+
+    p_home = strength_ratio / denominator
+    p_draw = (2 * nu) / denominator
+    p_away = 1 / denominator
+
+    total = p_home + p_draw + p_away
+    if total == 0:
+        return 0.0, 0.0, 0.0
+
+    return p_home / total, p_draw / total, p_away / total
 
 def apply_margin(probabilities, margin_percent):
     """
@@ -931,7 +1011,11 @@ if st.session_state.get('data_fetched', False):
     home_table = st.session_state.home_table
     away_table = st.session_state.away_table
     team_list = sorted(home_table["Team"].unique())
-    
+
+    league_stats = get_league_stats(selected_country, selected_league)
+    league_avg_draw = get_league_suggested_draw_rate(selected_country, selected_league, stats=league_stats)
+    league_avg_goals = get_league_average_goals(selected_country, selected_league, stats=league_stats)
+
     last_refresh = st.session_state.get("last_refresh")
     refresh_text = datetime.utcfromtimestamp(last_refresh).strftime("%d %b %Y %H:%M UTC") if last_refresh else "Awaiting refresh"
 
@@ -950,15 +1034,11 @@ if st.session_state.get('data_fetched', False):
         unsafe_allow_html=True
     )
 
-    # Get the static league-wide suggested draw rate
-    league_avg_draw = get_league_suggested_draw_rate(selected_country, selected_league)
-    
     # --- Main Tabs ---
     tab1, tab2 = st.tabs(["Single Match Analysis", "Multi-Match Calculator"])
 
     with tab1:
         with st.expander("📈 League-Wide Stats", expanded=True):
-            league_stats = get_league_stats(selected_country, selected_league)
             display_league_stats(league_stats)
 
         with st.expander("⚽ Select Matchup", expanded=True):
@@ -1010,7 +1090,12 @@ if st.session_state.get('data_fetched', False):
             margin = st.slider("Apply Bookmaker's Margin (%):", 0.0, 15.0, 5.0, 0.5, format="%.1f%%", key="single_margin")
 
         # --- Calculations for Single Match ---
-        p_home, p_draw, p_away = calculate_outcome_probabilities(home_rating, away_rating, league_avg_draw)
+        p_home, p_draw, p_away = calculate_outcome_probabilities(
+            home_rating,
+            away_rating,
+            league_avg_draw,
+            league_avg_goals,
+        )
         
         # Apply margin for 1x2 odds
         odds_1x2 = apply_margin([p_home, p_draw, p_away], margin)
@@ -1062,7 +1147,6 @@ if st.session_state.get('data_fetched', False):
 
     with tab2:
         with st.expander("📈 League-Wide Stats", expanded=True):
-            league_stats = get_league_stats(selected_country, selected_league)
             display_league_stats(league_stats)
 
         st.subheader("Multi-Match Odds Calculator")
@@ -1107,7 +1191,12 @@ if st.session_state.get('data_fetched', False):
                     h_rating = home_table[home_table["Team"] == sel_home].iloc[0]['Rating']
                     a_rating = away_table[away_table["Team"] == sel_away].iloc[0]['Rating']
                     
-                    p_h, p_d, p_a = calculate_outcome_probabilities(h_rating, a_rating, league_avg_draw)
+                    p_h, p_d, p_a = calculate_outcome_probabilities(
+                        h_rating,
+                        a_rating,
+                        league_avg_draw,
+                        league_avg_goals,
+                    )
                     odds = apply_margin([p_h, p_d, p_a], multi_margin)
                     
                     odds_1 = f"{odds[0]:.2f}"
