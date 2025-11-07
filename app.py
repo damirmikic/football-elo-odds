@@ -38,6 +38,66 @@ DEFAULT_AVG_GOALS = 2.6
 DRAW_OBS_WEIGHT = 0.7
 
 
+def modified_bessel_i0(x: float) -> float:
+    """Compute the modified Bessel function I0 with a pure-Python fallback."""
+
+    if hasattr(math, "i0"):
+        return math.i0(x)
+
+    ax = abs(x)
+    if ax == 0.0:
+        return 1.0
+
+    if ax < 3.75:
+        y = (x / 3.75) ** 2
+        return 1.0 + y * (
+            3.5156229
+            + y
+            * (
+                3.0899424
+                + y
+                * (
+                    1.2067492
+                    + y
+                    * (
+                        0.2659732
+                        + y * (0.0360768 + y * 0.0045813)
+                    )
+                )
+            )
+        )
+
+    y = 3.75 / ax
+    return (math.exp(ax) / math.sqrt(ax)) * (
+        0.39894228
+        + y
+        * (
+            0.01328592
+            + y
+            * (
+                0.00225319
+                + y
+                * (
+                    -0.00157565
+                    + y
+                    * (
+                        0.00916281
+                        + y
+                        * (
+                            -0.02057706
+                            + y
+                            * (
+                                0.02635537
+                                + y * (-0.01647633 + y * 0.00392377)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+    )
+
+
 # --- League Statistical Data Loader ---
 LEAGUE_STATS_PATH = Path(__file__).resolve().parent / "data" / "league_stats.json"
 
@@ -697,7 +757,7 @@ def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob, av
     # Blend observed draw rate with Poisson-implied parity draw for the league's scoring environment.
     mu = safe_float(avg_goals, DEFAULT_AVG_GOALS)
     mu = max(mu, 0)
-    poisson_draw = math.exp(-mu) * math.i0(mu)
+    poisson_draw = math.exp(-mu) * modified_bessel_i0(mu)
 
     alpha = min(max(draw_weight, 0.0), 1.0)
     observed_draw = min(max(safe_float(base_draw_prob, DEFAULT_DRAW_RATE), 0.0), 0.95)
