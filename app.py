@@ -798,6 +798,160 @@ def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob, av
 
     return p_home / total, p_draw / total, p_away / total
 
+
+def _poisson_pmf(k: int, lam: float) -> float:
+    if lam < 0:
+        return 0.0
+    try:
+        return math.exp(-lam) * (lam ** k) / math.factorial(k)
+    except OverflowError:
+        return 0.0
+
+
+def _build_poisson_distribution(lam: float, tolerance: float = 1e-12):
+    lam = max(lam, 0.0)
+    upper_bound = max(10, int(math.ceil(lam + 6)))
+    distribution = []
+    cumulative = 0.0
+    k = 0
+    while k <= upper_bound or cumulative < 1 - tolerance:
+        prob = _poisson_pmf(k, lam)
+        distribution.append(prob)
+        cumulative += prob
+        if cumulative >= 1 - tolerance:
+            break
+        k += 1
+        if k > 200:
+            break
+
+    remainder = max(0.0, 1.0 - sum(distribution))
+    if remainder > tolerance:
+        distribution.append(remainder)
+
+    total = sum(distribution)
+    if total <= 0:
+        return [1.0]
+
+    return [max(p / total, 0.0) for p in distribution]
+
+
+def _probability_to_odds(prob: float) -> float:
+    prob = min(max(prob, 0.0), 1.0)
+    if prob <= 0:
+        return float("inf")
+    return 1.0 / prob
+
+
+def calculate_poisson_markets_from_dnb(
+    home_dnb_odds: float,
+    away_dnb_odds: float,
+    avg_league_goals: float,
+    alpha: float = 1.0,
+    beta: float = 0.5,
+):
+    """Derive Poisson-based betting markets using DNB odds and league goal average."""
+
+    home_dnb_odds = max(safe_float(home_dnb_odds, 0.0), 0.0)
+    away_dnb_odds = max(safe_float(away_dnb_odds, 0.0), 0.0)
+
+    pH_raw = 1.0 / home_dnb_odds if home_dnb_odds > 0 else 0.0
+    pA_raw = 1.0 / away_dnb_odds if away_dnb_odds > 0 else 0.0
+    Z = pH_raw + pA_raw
+
+    if Z <= 0:
+        pi_H = pi_A = 0.5
+    else:
+        pi_H = pH_raw / Z
+        pi_A = pA_raw / Z
+
+    r = abs(pi_H - 0.5)
+
+    avg_league_goals = max(safe_float(avg_league_goals, DEFAULT_AVG_GOALS), 0.0)
+    lambda_total = avg_league_goals * (1 + beta * r)
+
+    alpha = max(safe_float(alpha, 1.0), 0.0)
+    H_share = pi_H ** alpha if pi_H > 0 else 0.0
+    A_share = pi_A ** alpha if pi_A > 0 else 0.0
+    share_total = H_share + A_share
+    if share_total <= 0:
+        xg_home = xg_away = lambda_total / 2
+    else:
+        xg_home = lambda_total * (H_share / share_total)
+        xg_away = lambda_total * (A_share / share_total)
+
+    home_dist = _build_poisson_distribution(xg_home)
+    away_dist = _build_poisson_distribution(xg_away)
+
+    goal_matrix = {}
+    p_home_win = 0.0
+    p_draw = 0.0
+    p_away_win = 0.0
+
+    for i, p_i in enumerate(home_dist):
+        for j, p_j in enumerate(away_dist):
+            prob = p_i * p_j
+            goal_matrix[(i, j)] = prob
+            if i > j:
+                p_home_win += prob
+            elif i == j:
+                p_draw += prob
+            else:
+                p_away_win += prob
+
+    normalization = p_home_win + p_draw + p_away_win
+    if normalization > 0:
+        p_home_win /= normalization
+        p_draw /= normalization
+        p_away_win /= normalization
+    else:
+        p_home_win = p_away_win = 0.0
+        p_draw = 1.0
+
+    total_goals_dist = {}
+    for (i, j), prob in goal_matrix.items():
+        total_goals_dist[i + j] = total_goals_dist.get(i + j, 0.0) + prob
+
+    p_under_25 = sum(prob for goals, prob in total_goals_dist.items() if goals <= 2)
+    p_under_25 = min(max(p_under_25, 0.0), 1.0)
+    p_over_25 = min(max(1.0 - p_under_25, 0.0), 1.0)
+
+    p_home_clean = home_dist[0] if home_dist else 0.0
+    p_away_clean = away_dist[0] if away_dist else 0.0
+    p_btts = 1.0 - (p_home_clean + p_away_clean - (p_home_clean * p_away_clean))
+    p_btts = min(max(p_btts, 0.0), 1.0)
+    p_not_btts = min(max(1.0 - p_btts, 0.0), 1.0)
+
+    return {
+        "lambda_total": lambda_total,
+        "xg_home": xg_home,
+        "xg_away": xg_away,
+        "probabilities": {
+            "home": p_home_win,
+            "draw": p_draw,
+            "away": p_away_win,
+        },
+        "odds": {
+            "home": _probability_to_odds(p_home_win),
+            "draw": _probability_to_odds(p_draw),
+            "away": _probability_to_odds(p_away_win),
+        },
+        "over_under": {
+            "over25_prob": p_over_25,
+            "under25_prob": p_under_25,
+            "over25_odds": _probability_to_odds(p_over_25),
+            "under25_odds": _probability_to_odds(p_under_25),
+        },
+        "btts": {
+            "yes_prob": p_btts,
+            "no_prob": p_not_btts,
+            "yes_odds": _probability_to_odds(p_btts),
+            "no_odds": _probability_to_odds(p_not_btts),
+        },
+        "home_distribution": home_dist,
+        "away_distribution": away_dist,
+    }
+
+
 def apply_margin(probabilities, margin_percent):
     """
     Applies a bookmaker's margin to a list of probabilities
@@ -1114,25 +1268,60 @@ if st.session_state.get('data_fetched', False):
             league_avg_draw,
             league_avg_goals,
         )
-        
-        # Apply margin for 1x2 odds
-        odds_1x2 = apply_margin([p_home, p_draw, p_away], margin)
+
+        p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0.5
+        p_dnb_away = 1 - p_dnb_home
+        min_prob = 1e-6
+        fair_dnb_home_odds = 1 / max(p_dnb_home, min_prob)
+        fair_dnb_away_odds = 1 / max(p_dnb_away, min_prob)
+
+        poisson_markets = calculate_poisson_markets_from_dnb(
+            fair_dnb_home_odds,
+            fair_dnb_away_odds,
+            league_avg_goals,
+        )
+
+        poisson_probs = poisson_markets["probabilities"]
+
+        # Apply margin for 1x2 odds based on Poisson probabilities
+        odds_1x2 = apply_margin(
+            [poisson_probs["home"], poisson_probs["draw"], poisson_probs["away"]],
+            margin,
+        )
         h_odds, d_odds, a_odds = odds_1x2[0], odds_1x2[1], odds_1x2[2]
 
-        # Apply margin for DNB odds
-        p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
-        p_dnb_away = 1 - p_dnb_home
+        # Apply margin for DNB odds using Elo-derived strengths
         odds_dnb = apply_margin([p_dnb_home, p_dnb_away], margin)
         dnb_h_odds, dnb_a_odds = odds_dnb[0], odds_dnb[1]
 
+        ou_probs = poisson_markets["over_under"]
+        ou_odds = apply_margin(
+            [ou_probs["over25_prob"], ou_probs["under25_prob"]],
+            margin,
+        )
+        over25_odds, under25_odds = ou_odds[0], ou_odds[1]
+
+        btts_probs = poisson_markets["btts"]
+        btts_odds = apply_margin(
+            [btts_probs["yes_prob"], btts_probs["no_prob"]],
+            margin,
+        )
+        btts_yes_odds, btts_no_odds = btts_odds[0], btts_odds[1]
 
         with st.expander("🎯 Calculated Odds", expanded=True):
-            st.markdown(f"**Calculated Fair Probabilities (Dynamic Draw: {p_draw:.1%})**")
+            st.markdown("**Adjusted Expected Goals**")
+            xg_cols = st.columns(3)
+            xg_cols[0].metric("Total xG", f"{poisson_markets['lambda_total']:.2f}")
+            xg_cols[1].metric(f"{home_team_name} xG", f"{poisson_markets['xg_home']:.2f}")
+            xg_cols[2].metric(f"{away_team_name} xG", f"{poisson_markets['xg_away']:.2f}")
+
+            st.markdown("---")
+            st.markdown("**Poisson-Derived Fair Probabilities**")
             prob_cols = st.columns(3)
-            prob_cols[0].metric("Home Win", f"{p_home:.2%}")
-            prob_cols[1].metric("Draw", f"{p_draw:.2%}")
-            prob_cols[2].metric("Away Win", f"{p_away:.2%}")
-            
+            prob_cols[0].metric("Home Win", f"{poisson_probs['home']:.2%}")
+            prob_cols[1].metric("Draw", f"{poisson_probs['draw']:.2%}")
+            prob_cols[2].metric("Away Win", f"{poisson_probs['away']:.2%}")
+
             st.markdown("---")
             st.write(f"**Calculated Odds with {margin:.1f}% Margin:**")
             c1, c2, c3 = st.columns(3)
@@ -1145,6 +1334,24 @@ if st.session_state.get('data_fetched', False):
             dnb_c1, dnb_c2 = st.columns(2)
             dnb_c1.markdown(f"<div class='card'><div class='card-title'>Home (DNB)</div><div class='card-value'>{dnb_h_odds:.2f}</div></div>", unsafe_allow_html=True)
             dnb_c2.markdown(f"<div class='card'><div class='card-title'>Away (DNB)</div><div class='card-value'>{dnb_a_odds:.2f}</div></div>", unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.write("**Over/Under 2.5 Goals:**")
+            ou_cols = st.columns(2)
+            ou_cols[0].metric("Over 2.5 (Prob)", f"{ou_probs['over25_prob']:.2%}", help="Fair probability from Poisson model")
+            ou_cols[1].metric("Under 2.5 (Prob)", f"{ou_probs['under25_prob']:.2%}", help="Fair probability from Poisson model")
+            ou_card_cols = st.columns(2)
+            ou_card_cols[0].markdown(f"<div class='card'><div class='card-title'>Over 2.5</div><div class='card-value'>{over25_odds:.2f}</div></div>", unsafe_allow_html=True)
+            ou_card_cols[1].markdown(f"<div class='card'><div class='card-title'>Under 2.5</div><div class='card-value'>{under25_odds:.2f}</div></div>", unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.write("**Both Teams to Score:**")
+            btts_cols = st.columns(2)
+            btts_cols[0].metric("BTTS - Yes (Prob)", f"{btts_probs['yes_prob']:.2%}", help="Fair probability from Poisson model")
+            btts_cols[1].metric("BTTS - No (Prob)", f"{btts_probs['no_prob']:.2%}", help="Fair probability from Poisson model")
+            btts_card_cols = st.columns(2)
+            btts_card_cols[0].markdown(f"<div class='card'><div class='card-title'>BTTS - Yes</div><div class='card-value'>{btts_yes_odds:.2f}</div></div>", unsafe_allow_html=True)
+            btts_card_cols[1].markdown(f"<div class='card'><div class='card-title'>BTTS - No</div><div class='card-value'>{btts_no_odds:.2f}</div></div>", unsafe_allow_html=True)
 
         with st.expander("📋 Interactive Lineups", expanded=True):
             col1, col2 = st.columns(2)
@@ -1209,14 +1416,29 @@ if st.session_state.get('data_fetched', False):
                     h_rating = home_table[home_table["Team"] == sel_home].iloc[0]['Rating']
                     a_rating = away_table[away_table["Team"] == sel_away].iloc[0]['Rating']
                     
-                    p_h, p_d, p_a = calculate_outcome_probabilities(
+                    p_h, _, p_a = calculate_outcome_probabilities(
                         h_rating,
                         a_rating,
                         league_avg_draw,
                         league_avg_goals,
                     )
-                    odds = apply_margin([p_h, p_d, p_a], multi_margin)
-                    
+                    p_dnb_home = p_h / (p_h + p_a) if (p_h + p_a) > 0 else 0.5
+                    p_dnb_away = 1 - p_dnb_home
+                    min_prob = 1e-6
+                    fair_home_dnb = 1 / max(p_dnb_home, min_prob)
+                    fair_away_dnb = 1 / max(p_dnb_away, min_prob)
+
+                    markets = calculate_poisson_markets_from_dnb(
+                        fair_home_dnb,
+                        fair_away_dnb,
+                        league_avg_goals,
+                    )
+                    market_probs = markets["probabilities"]
+                    odds = apply_margin(
+                        [market_probs["home"], market_probs["draw"], market_probs["away"]],
+                        multi_margin,
+                    )
+
                     odds_1 = f"{odds[0]:.2f}"
                     odds_x = f"{odds[1]:.2f}"
                     odds_2 = f"{odds[2]:.2f}"
