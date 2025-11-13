@@ -422,6 +422,10 @@ section[data-testid="stSidebar"] div[data-testid="stExpander"] label {
     text-align: center;
     height: 100%;
 }
+.odds-box.odds-box--compact {
+    padding: 6px 2px;
+    min-height: 82px;
+}
 .odds-box-title {
     font-size: 11px;
     color: var(--muted);

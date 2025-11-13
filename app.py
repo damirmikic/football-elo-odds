@@ -1249,7 +1249,7 @@ if st.session_state.get('data_fetched', False):
             default_home_index = team_list_with_blank.index(default_home) if default_home in team_list_with_blank else 0
             default_away_index = team_list_with_blank.index(default_away) if default_away in team_list_with_blank else 0
 
-            col1, col2, col3, col4 = st.columns([3, 3, 1.2, 1.2])
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([3, 3, 1.05, 1.05, 1.05, 1.05, 1.05])
             
             sel_home = col1.selectbox(f"Home Team {i+1}", team_list_with_blank, index=default_home_index, key=key_home, label_visibility="collapsed")
             sel_away = col2.selectbox(f"Away Team {i+1}", team_list_with_blank, index=default_away_index, key=key_away, label_visibility="collapsed")
@@ -1258,6 +1258,7 @@ if st.session_state.get('data_fetched', False):
             st.session_state['multi_match_selections'][key_home] = sel_home
             st.session_state['multi_match_selections'][key_away] = sel_away
 
+            odds_home_1x2, odds_draw_1x2, odds_away_1x2 = "-", "-", "-"
             odds_dnb_home, odds_dnb_away = "-", "-"
             
             if sel_home != "---" and sel_away != "---" and sel_home != sel_away:
@@ -1274,31 +1275,75 @@ if st.session_state.get('data_fetched', False):
                     p_dnb_home = p_h / (p_h + p_a) if (p_h + p_a) > 0 else 0.5
                     p_dnb_away = 1 - p_dnb_home
 
+                    odds_1x2 = apply_margin([p_h, p_draw, p_a], multi_margin)
                     dnb_probs = [p_dnb_home, p_dnb_away]
-                    adjusted_odds = apply_margin(dnb_probs, multi_margin)
+                    adjusted_dnb = apply_margin(dnb_probs, multi_margin)
 
-                    odds_dnb_home = f"{adjusted_odds[0]:.2f}"
-                    odds_dnb_away = f"{adjusted_odds[1]:.2f}"
+                    odds_home_1x2 = f"{odds_1x2[0]:.2f}"
+                    odds_draw_1x2 = f"{odds_1x2[1]:.2f}"
+                    odds_away_1x2 = f"{odds_1x2[2]:.2f}"
+                    odds_dnb_home = f"{adjusted_dnb[0]:.2f}"
+                    odds_dnb_away = f"{adjusted_dnb[1]:.2f}"
                 except (IndexError, TypeError):
                     # One of the teams might not be in the table (e.g., if lists differ)
+                    odds_home_1x2, odds_draw_1x2, odds_away_1x2 = "Err", "Err", "Err"
                     odds_dnb_home, odds_dnb_away = "Err", "Err"
 
             with col3:
-                st.markdown(f"""
-                <div class="odds-box">
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
+                    <div class="odds-box-title">1X2</div>
+                    <div class="odds-box-subtitle">Home</div>
+                    <div class="odds-box-value">{odds_home_1x2}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+            with col4:
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
+                    <div class="odds-box-title">1X2</div>
+                    <div class="odds-box-subtitle">Draw</div>
+                    <div class="odds-box-value">{odds_draw_1x2}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+            with col5:
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
+                    <div class="odds-box-title">1X2</div>
+                    <div class="odds-box-subtitle">Away</div>
+                    <div class="odds-box-value">{odds_away_1x2}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+            with col6:
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
                     <div class="odds-box-title">AH 0</div>
                     <div class="odds-box-subtitle">Home</div>
                     <div class="odds-box-value">{odds_dnb_home}</div>
                 </div>
-                """, unsafe_allow_html=True)
-            with col4:
-                st.markdown(f"""
-                <div class="odds-box">
+                """,
+                    unsafe_allow_html=True,
+                )
+            with col7:
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
                     <div class="odds-box-title">AH 0</div>
                     <div class="odds-box-subtitle">Away</div>
                     <div class="odds-box-value">{odds_dnb_away}</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """,
+                    unsafe_allow_html=True,
+                )
 
 
 else:
