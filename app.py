@@ -1266,7 +1266,7 @@ if st.session_state.get('data_fetched', False):
                     h_rating = home_table[home_table["Team"] == sel_home].iloc[0]['Rating']
                     a_rating = away_table[away_table["Team"] == sel_away].iloc[0]['Rating']
                     
-                    p_h, _, p_a = calculate_outcome_probabilities(
+                    p_h, p_draw, p_a = calculate_outcome_probabilities(
                         h_rating,
                         a_rating,
                         league_avg_draw,
@@ -1274,8 +1274,25 @@ if st.session_state.get('data_fetched', False):
                     )
                     p_dnb_home = p_h / (p_h + p_a) if (p_h + p_a) > 0 else 0.5
                     p_dnb_away = 1 - p_dnb_home
+                    min_prob = 1e-6
+                    fair_dnb_home = 1 / max(p_dnb_home, min_prob)
+                    fair_dnb_away = 1 / max(p_dnb_away, min_prob)
 
-                    odds_1x2 = apply_margin([p_h, p_draw, p_a], multi_margin)
+                    poisson_markets = calculate_poisson_markets_from_dnb(
+                        fair_dnb_home,
+                        fair_dnb_away,
+                        league_avg_goals,
+                    )
+                    poisson_probs = poisson_markets["probabilities"]
+
+                    odds_1x2 = apply_margin(
+                        [
+                            poisson_probs["home"],
+                            poisson_probs["draw"],
+                            poisson_probs["away"],
+                        ],
+                        multi_margin,
+                    )
                     dnb_probs = [p_dnb_home, p_dnb_away]
                     adjusted_dnb = apply_margin(dnb_probs, multi_margin)
 
