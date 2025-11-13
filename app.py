@@ -1400,7 +1400,7 @@ if st.session_state.get('data_fetched', False):
             default_home_index = team_list_with_blank.index(default_home) if default_home in team_list_with_blank else 0
             default_away_index = team_list_with_blank.index(default_away) if default_away in team_list_with_blank else 0
 
-            col1, col2, col3, col4, col5 = st.columns([3, 3, 1, 1, 1])
+            col1, col2, col3, col4 = st.columns([3, 3, 1.2, 1.2])
             
             sel_home = col1.selectbox(f"Home Team {i+1}", team_list_with_blank, index=default_home_index, key=key_home, label_visibility="collapsed")
             sel_away = col2.selectbox(f"Away Team {i+1}", team_list_with_blank, index=default_away_index, key=key_away, label_visibility="collapsed")
@@ -1409,7 +1409,7 @@ if st.session_state.get('data_fetched', False):
             st.session_state['multi_match_selections'][key_home] = sel_home
             st.session_state['multi_match_selections'][key_away] = sel_away
 
-            odds_1, odds_x, odds_2 = "-", "-", "-"
+            odds_dnb_home, odds_dnb_away = "-", "-"
             
             if sel_home != "---" and sel_away != "---" and sel_home != sel_away:
                 try:
@@ -1424,47 +1424,30 @@ if st.session_state.get('data_fetched', False):
                     )
                     p_dnb_home = p_h / (p_h + p_a) if (p_h + p_a) > 0 else 0.5
                     p_dnb_away = 1 - p_dnb_home
-                    min_prob = 1e-6
-                    fair_home_dnb = 1 / max(p_dnb_home, min_prob)
-                    fair_away_dnb = 1 / max(p_dnb_away, min_prob)
 
-                    markets = calculate_poisson_markets_from_dnb(
-                        fair_home_dnb,
-                        fair_away_dnb,
-                        league_avg_goals,
-                    )
-                    market_probs = markets["probabilities"]
-                    odds = apply_margin(
-                        [market_probs["home"], market_probs["draw"], market_probs["away"]],
-                        multi_margin,
-                    )
+                    dnb_probs = [p_dnb_home, p_dnb_away]
+                    adjusted_odds = apply_margin(dnb_probs, multi_margin)
 
-                    odds_1 = f"{odds[0]:.2f}"
-                    odds_x = f"{odds[1]:.2f}"
-                    odds_2 = f"{odds[2]:.2f}"
+                    odds_dnb_home = f"{adjusted_odds[0]:.2f}"
+                    odds_dnb_away = f"{adjusted_odds[1]:.2f}"
                 except (IndexError, TypeError):
                     # One of the teams might not be in the table (e.g., if lists differ)
-                    odds_1, odds_x, odds_2 = "Err", "Err", "Err"
+                    odds_dnb_home, odds_dnb_away = "Err", "Err"
 
             with col3:
                 st.markdown(f"""
                 <div class="odds-box">
-                    <div class="odds-box-title">1</div>
-                    <div class="odds-box-value">{odds_1}</div>
+                    <div class="odds-box-title">AH 0</div>
+                    <div class="odds-box-subtitle">Home</div>
+                    <div class="odds-box-value">{odds_dnb_home}</div>
                 </div>
                 """, unsafe_allow_html=True)
             with col4:
                 st.markdown(f"""
                 <div class="odds-box">
-                    <div class="odds-box-title">X</div>
-                    <div class="odds-box-value">{odds_x}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with col5:
-                st.markdown(f"""
-                <div class="odds-box">
-                    <div class="odds-box-title">2</div>
-                    <div class="odds-box-value">{odds_2}</div>
+                    <div class="odds-box-title">AH 0</div>
+                    <div class="odds-box-subtitle">Away</div>
+                    <div class="odds-box-value">{odds_dnb_away}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
