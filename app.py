@@ -12,6 +12,8 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+from odds import calculate_poisson_markets_from_dnb
+
 # Set page title and icon
 st.set_page_config(page_title="Elo Ratings Odds Calculator", page_icon="odds_icon.png")
 
@@ -798,6 +800,7 @@ def calculate_outcome_probabilities(home_rating, away_rating, base_draw_prob, av
 
     return p_home / total, p_draw / total, p_away / total
 
+
 def apply_margin(probabilities, margin_percent):
     """
     Applies a bookmaker's margin to a list of probabilities
@@ -1114,25 +1117,60 @@ if st.session_state.get('data_fetched', False):
             league_avg_draw,
             league_avg_goals,
         )
-        
-        # Apply margin for 1x2 odds
-        odds_1x2 = apply_margin([p_home, p_draw, p_away], margin)
+
+        p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0.5
+        p_dnb_away = 1 - p_dnb_home
+        min_prob = 1e-6
+        fair_dnb_home_odds = 1 / max(p_dnb_home, min_prob)
+        fair_dnb_away_odds = 1 / max(p_dnb_away, min_prob)
+
+        poisson_markets = calculate_poisson_markets_from_dnb(
+            fair_dnb_home_odds,
+            fair_dnb_away_odds,
+            league_avg_goals,
+        )
+
+        poisson_probs = poisson_markets["probabilities"]
+
+        # Apply margin for 1x2 odds based on Poisson probabilities
+        odds_1x2 = apply_margin(
+            [poisson_probs["home"], poisson_probs["draw"], poisson_probs["away"]],
+            margin,
+        )
         h_odds, d_odds, a_odds = odds_1x2[0], odds_1x2[1], odds_1x2[2]
 
-        # Apply margin for DNB odds
-        p_dnb_home = p_home / (p_home + p_away) if (p_home + p_away) > 0 else 0
-        p_dnb_away = 1 - p_dnb_home
+        # Apply margin for DNB odds using Elo-derived strengths
         odds_dnb = apply_margin([p_dnb_home, p_dnb_away], margin)
         dnb_h_odds, dnb_a_odds = odds_dnb[0], odds_dnb[1]
 
+        ou_probs = poisson_markets["over_under"]
+        ou_odds = apply_margin(
+            [ou_probs["over25_prob"], ou_probs["under25_prob"]],
+            margin,
+        )
+        over25_odds, under25_odds = ou_odds[0], ou_odds[1]
+
+        btts_probs = poisson_markets["btts"]
+        btts_odds = apply_margin(
+            [btts_probs["yes_prob"], btts_probs["no_prob"]],
+            margin,
+        )
+        btts_yes_odds, btts_no_odds = btts_odds[0], btts_odds[1]
 
         with st.expander("🎯 Calculated Odds", expanded=True):
-            st.markdown(f"**Calculated Fair Probabilities (Dynamic Draw: {p_draw:.1%})**")
+            st.markdown("**Adjusted Expected Goals**")
+            xg_cols = st.columns(3)
+            xg_cols[0].metric("Total xG", f"{poisson_markets['lambda_total']:.2f}")
+            xg_cols[1].metric(f"{home_team_name} xG", f"{poisson_markets['xg_home']:.2f}")
+            xg_cols[2].metric(f"{away_team_name} xG", f"{poisson_markets['xg_away']:.2f}")
+
+            st.markdown("---")
+            st.markdown("**Poisson-Derived Fair Probabilities**")
             prob_cols = st.columns(3)
-            prob_cols[0].metric("Home Win", f"{p_home:.2%}")
-            prob_cols[1].metric("Draw", f"{p_draw:.2%}")
-            prob_cols[2].metric("Away Win", f"{p_away:.2%}")
-            
+            prob_cols[0].metric("Home Win", f"{poisson_probs['home']:.2%}")
+            prob_cols[1].metric("Draw", f"{poisson_probs['draw']:.2%}")
+            prob_cols[2].metric("Away Win", f"{poisson_probs['away']:.2%}")
+
             st.markdown("---")
             st.write(f"**Calculated Odds with {margin:.1f}% Margin:**")
             c1, c2, c3 = st.columns(3)
@@ -1145,6 +1183,24 @@ if st.session_state.get('data_fetched', False):
             dnb_c1, dnb_c2 = st.columns(2)
             dnb_c1.markdown(f"<div class='card'><div class='card-title'>Home (DNB)</div><div class='card-value'>{dnb_h_odds:.2f}</div></div>", unsafe_allow_html=True)
             dnb_c2.markdown(f"<div class='card'><div class='card-title'>Away (DNB)</div><div class='card-value'>{dnb_a_odds:.2f}</div></div>", unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.write("**Over/Under 2.5 Goals:**")
+            ou_cols = st.columns(2)
+            ou_cols[0].metric("Over 2.5 (Prob)", f"{ou_probs['over25_prob']:.2%}", help="Fair probability from Poisson model")
+            ou_cols[1].metric("Under 2.5 (Prob)", f"{ou_probs['under25_prob']:.2%}", help="Fair probability from Poisson model")
+            ou_card_cols = st.columns(2)
+            ou_card_cols[0].markdown(f"<div class='card'><div class='card-title'>Over 2.5</div><div class='card-value'>{over25_odds:.2f}</div></div>", unsafe_allow_html=True)
+            ou_card_cols[1].markdown(f"<div class='card'><div class='card-title'>Under 2.5</div><div class='card-value'>{under25_odds:.2f}</div></div>", unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.write("**Both Teams to Score:**")
+            btts_cols = st.columns(2)
+            btts_cols[0].metric("BTTS - Yes (Prob)", f"{btts_probs['yes_prob']:.2%}", help="Fair probability from Poisson model")
+            btts_cols[1].metric("BTTS - No (Prob)", f"{btts_probs['no_prob']:.2%}", help="Fair probability from Poisson model")
+            btts_card_cols = st.columns(2)
+            btts_card_cols[0].markdown(f"<div class='card'><div class='card-title'>BTTS - Yes</div><div class='card-value'>{btts_yes_odds:.2f}</div></div>", unsafe_allow_html=True)
+            btts_card_cols[1].markdown(f"<div class='card'><div class='card-title'>BTTS - No</div><div class='card-value'>{btts_no_odds:.2f}</div></div>", unsafe_allow_html=True)
 
         with st.expander("📋 Interactive Lineups", expanded=True):
             col1, col2 = st.columns(2)
@@ -1193,7 +1249,7 @@ if st.session_state.get('data_fetched', False):
             default_home_index = team_list_with_blank.index(default_home) if default_home in team_list_with_blank else 0
             default_away_index = team_list_with_blank.index(default_away) if default_away in team_list_with_blank else 0
 
-            col1, col2, col3, col4, col5 = st.columns([3, 3, 1, 1, 1])
+            col1, col2, col3, col4, col5, col6, col7 = st.columns([3, 3, 1.05, 1.05, 1.05, 1.05, 1.05])
             
             sel_home = col1.selectbox(f"Home Team {i+1}", team_list_with_blank, index=default_home_index, key=key_home, label_visibility="collapsed")
             sel_away = col2.selectbox(f"Away Team {i+1}", team_list_with_blank, index=default_away_index, key=key_away, label_visibility="collapsed")
@@ -1202,49 +1258,109 @@ if st.session_state.get('data_fetched', False):
             st.session_state['multi_match_selections'][key_home] = sel_home
             st.session_state['multi_match_selections'][key_away] = sel_away
 
-            odds_1, odds_x, odds_2 = "-", "-", "-"
+            odds_home_1x2, odds_draw_1x2, odds_away_1x2 = "-", "-", "-"
+            odds_dnb_home, odds_dnb_away = "-", "-"
             
             if sel_home != "---" and sel_away != "---" and sel_home != sel_away:
                 try:
                     h_rating = home_table[home_table["Team"] == sel_home].iloc[0]['Rating']
                     a_rating = away_table[away_table["Team"] == sel_away].iloc[0]['Rating']
                     
-                    p_h, p_d, p_a = calculate_outcome_probabilities(
+                    p_h, p_draw, p_a = calculate_outcome_probabilities(
                         h_rating,
                         a_rating,
                         league_avg_draw,
                         league_avg_goals,
                     )
-                    odds = apply_margin([p_h, p_d, p_a], multi_margin)
-                    
-                    odds_1 = f"{odds[0]:.2f}"
-                    odds_x = f"{odds[1]:.2f}"
-                    odds_2 = f"{odds[2]:.2f}"
+                    p_dnb_home = p_h / (p_h + p_a) if (p_h + p_a) > 0 else 0.5
+                    p_dnb_away = 1 - p_dnb_home
+                    min_prob = 1e-6
+                    fair_dnb_home = 1 / max(p_dnb_home, min_prob)
+                    fair_dnb_away = 1 / max(p_dnb_away, min_prob)
+
+                    poisson_markets = calculate_poisson_markets_from_dnb(
+                        fair_dnb_home,
+                        fair_dnb_away,
+                        league_avg_goals,
+                    )
+                    poisson_probs = poisson_markets["probabilities"]
+
+                    odds_1x2 = apply_margin(
+                        [
+                            poisson_probs["home"],
+                            poisson_probs["draw"],
+                            poisson_probs["away"],
+                        ],
+                        multi_margin,
+                    )
+                    dnb_probs = [p_dnb_home, p_dnb_away]
+                    adjusted_dnb = apply_margin(dnb_probs, multi_margin)
+
+                    odds_home_1x2 = f"{odds_1x2[0]:.2f}"
+                    odds_draw_1x2 = f"{odds_1x2[1]:.2f}"
+                    odds_away_1x2 = f"{odds_1x2[2]:.2f}"
+                    odds_dnb_home = f"{adjusted_dnb[0]:.2f}"
+                    odds_dnb_away = f"{adjusted_dnb[1]:.2f}"
                 except (IndexError, TypeError):
                     # One of the teams might not be in the table (e.g., if lists differ)
-                    odds_1, odds_x, odds_2 = "Err", "Err", "Err"
+                    odds_home_1x2, odds_draw_1x2, odds_away_1x2 = "Err", "Err", "Err"
+                    odds_dnb_home, odds_dnb_away = "Err", "Err"
 
             with col3:
-                st.markdown(f"""
-                <div class="odds-box">
-                    <div class="odds-box-title">1</div>
-                    <div class="odds-box-value">{odds_1}</div>
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
+                    <div class="odds-box-title">1X2</div>
+                    <div class="odds-box-subtitle">Home</div>
+                    <div class="odds-box-value">{odds_home_1x2}</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """,
+                    unsafe_allow_html=True,
+                )
             with col4:
-                st.markdown(f"""
-                <div class="odds-box">
-                    <div class="odds-box-title">X</div>
-                    <div class="odds-box-value">{odds_x}</div>
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
+                    <div class="odds-box-title">1X2</div>
+                    <div class="odds-box-subtitle">Draw</div>
+                    <div class="odds-box-value">{odds_draw_1x2}</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """,
+                    unsafe_allow_html=True,
+                )
             with col5:
-                st.markdown(f"""
-                <div class="odds-box">
-                    <div class="odds-box-title">2</div>
-                    <div class="odds-box-value">{odds_2}</div>
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
+                    <div class="odds-box-title">1X2</div>
+                    <div class="odds-box-subtitle">Away</div>
+                    <div class="odds-box-value">{odds_away_1x2}</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """,
+                    unsafe_allow_html=True,
+                )
+            with col6:
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
+                    <div class="odds-box-title">AH 0</div>
+                    <div class="odds-box-subtitle">Home</div>
+                    <div class="odds-box-value">{odds_dnb_home}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+            with col7:
+                st.markdown(
+                    f"""
+                <div class="odds-box odds-box--compact">
+                    <div class="odds-box-title">AH 0</div>
+                    <div class="odds-box-subtitle">Away</div>
+                    <div class="odds-box-value">{odds_dnb_away}</div>
+                </div>
+                """,
+                    unsafe_allow_html=True,
+                )
 
 
 else:
