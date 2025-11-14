@@ -297,8 +297,12 @@ div[data-testid="stAlert"] span {
 }
 
 div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-    color: var(--primary-dark) !important;
+    color: var(--text-main) !important;
     font-size: 28px !important; /* Made the number smaller */
+}
+
+div[data-testid="stMetric"] div[data-testid="stMetricValue"] * {
+    color: var(--text-main) !important;
 }
 
 div[data-testid="stMetric"] div[data-testid="stMetricLabel"] {
