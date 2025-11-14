@@ -32,6 +32,18 @@ body {
     color: var(--text-main);
 }
 
+.main .block-container label[data-testid="stWidgetLabel"],
+.main .block-container label[data-testid="stWidgetLabel"] > div,
+.main .block-container label[data-testid="stWidgetLabel"] > span,
+.main .block-container label[data-testid="stWidgetLabel"] p {
+    color: var(--text-main) !important;
+}
+
+.main .block-container div[data-testid="stMarkdown"],
+.main .block-container div[data-testid="stMarkdown"] * {
+    color: var(--text-main) !important;
+}
+
 .stApp {
     background: transparent;
     color: var(--text-main);
@@ -297,8 +309,12 @@ div[data-testid="stAlert"] span {
 }
 
 div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-    color: var(--primary-dark) !important;
+    color: var(--text-main) !important;
     font-size: 28px !important; /* Made the number smaller */
+}
+
+div[data-testid="stMetric"] div[data-testid="stMetricValue"] * {
+    color: var(--text-main) !important;
 }
 
 div[data-testid="stMetric"] div[data-testid="stMetricLabel"] {
