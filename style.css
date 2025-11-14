@@ -311,6 +311,13 @@ body {
     background: rgba(255,255,255,0.9);
 }
 
+/* Fix for expander text color in the main content area */
+.main div[data-testid="stExpander"] p,
+.main div[data-testid="stExpander"] li,
+.main div[data-testid="stExpander"] span {
+    color: var(--text-main) !important;
+}
+
 .stApp .main div[data-testid="stExpander"] > div:first-child {
     border-radius: 18px;
     background: rgba(15, 118, 110, 0.1);
