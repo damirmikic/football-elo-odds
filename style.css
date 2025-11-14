@@ -32,16 +32,14 @@ body {
     color: var(--text-main);
 }
 
-.main .block-container label[data-testid="stWidgetLabel"],
-.main .block-container label[data-testid="stWidgetLabel"] > div,
-.main .block-container label[data-testid="stWidgetLabel"] > span,
-.main .block-container label[data-testid="stWidgetLabel"] p {
-    color: var(--text-main) !important;
+.stApp .main .block-container label,
+.stApp .main .block-container label * {
+    color: var(--text-main);
 }
 
-.main .block-container div[data-testid="stMarkdown"],
-.main .block-container div[data-testid="stMarkdown"] * {
-    color: var(--text-main) !important;
+.stApp .main .block-container .stMarkdown,
+.stApp .main .block-container .stMarkdown * {
+    color: var(--text-main);
 }
 
 .stApp {
