@@ -2041,5 +2041,14 @@
     "Draw%": 0.25,
     "GP": 88,
     "HomeW%": 0.33
+  },
+  "Portugal- Liga 3": {
+    "AvgAG": 0.99,
+    "AvgGoals": 2.19,
+    "AvgHG": 1.2,
+    "AwayW%": 0.27,
+    "Draw%": 0.34,
+    "GP": 150,
+    "HomeW%": 0.39
   }
 }
