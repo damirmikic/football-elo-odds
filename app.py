@@ -305,6 +305,7 @@ LEAGUE_STATS_MAP = {
     ("Poland", "PL3"): "Poland - 2. Liga",
     ("Portugal", "PT1"): "Portugal - Liga Portugal",
     ("Portugal", "PT2"): "Portugal - Liga Portugal 2",
+    ("Portugal", "PT3"): "Portugal - Liga 3",
     ("Qatar", "QA1"): "Qatar - Stars League",
     ("Qatar", "QA2"): "Qatar - Division 2",
     ("Romania", "RO1"): "Romania - Liga 1",
