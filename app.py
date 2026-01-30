@@ -1169,55 +1169,90 @@ if st.session_state.get('data_fetched', False):
         with st.expander("📈 League-Wide Stats", expanded=True):
             display_league_stats(league_stats)
 
-        st.subheader("Multi-Match Odds Calculator")
-        
-        multi_margin = st.slider("Apply Bookmaker's Margin (%):", 0.0, 15.0, 5.0, 0.5, format="%.1f%%", key="multi_margin")
+        st.subheader("💰 Upcoming Matches - Value Bet Scanner")
+        st.caption("Automatically fetches upcoming matches from Kambi and identifies value betting opportunities")
+
+        # Settings
+        col_settings1, col_settings2 = st.columns(2)
+        with col_settings1:
+            min_ev_filter = st.slider("Show matches with EV above:", -20.0, 20.0, 0.0, 1.0, format="%.1f%%", key="min_ev_filter")
+        with col_settings2:
+            include_live = st.checkbox("Include live matches", value=False, key="include_live_multi")
+
         st.markdown("---")
 
-        num_teams = len(team_list)
-        num_rows = math.ceil(num_teams / 2)
-        
-        if 'multi_match_selections' not in st.session_state:
-            st.session_state['multi_match_selections'] = {}
+        # Fetch matches from Kambi
+        kambi = get_kambi_client()
 
-        # Use "---" as a blank option
-        team_list_with_blank = ["---"] + team_list
+        with st.spinner(f"🔍 Fetching upcoming matches for {selected_league}..."):
+            # Try to fetch matches by league first
+            kambi_matches = kambi.get_matches_by_league(
+                selected_country,
+                selected_league,
+                include_live=include_live
+            )
 
-        for i in range(num_rows):
-            key_home = f"multi_home_{i}"
-            key_away = f"multi_away_{i}"
-            
-            # Set defaults
-            default_home = st.session_state['multi_match_selections'].get(key_home, "---")
-            default_away = st.session_state['multi_match_selections'].get(key_away, "---")
+            # If no matches found, try getting all matches and filter
+            if not kambi_matches:
+                all_matches = kambi.get_all_football_matches(include_live=include_live)
+                # Filter by league/country
+                kambi_matches = [
+                    m for m in all_matches
+                    if normalize_league_key(m.league) == normalize_league_key(selected_league) or
+                       normalize_league_key(m.country) == normalize_league_key(selected_country)
+                ]
 
-            # Ensure defaults are valid
-            default_home_index = team_list_with_blank.index(default_home) if default_home in team_list_with_blank else 0
-            default_away_index = team_list_with_blank.index(default_away) if default_away in team_list_with_blank else 0
+        if not kambi_matches:
+            st.warning(f"⚠️ No upcoming matches found in Kambi for {selected_country} - {selected_league}")
+            st.info("This could mean:\n"
+                    "- No matches scheduled in the near future\n"
+                    "- League name doesn't match Kambi's naming\n"
+                    "- League not covered by Kambi\n\n"
+                    "Try selecting a different league or check back closer to match time.")
+        else:
+            st.success(f"✓ Found {len(kambi_matches)} upcoming match(es)")
 
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([3, 3, 1.05, 1.05, 1.05, 1.05, 1.05])
-            
-            sel_home = col1.selectbox(f"Home Team {i+1}", team_list_with_blank, index=default_home_index, key=key_home, label_visibility="collapsed")
-            sel_away = col2.selectbox(f"Away Team {i+1}", team_list_with_blank, index=default_away_index, key=key_away, label_visibility="collapsed")
+            # Process each match
+            match_data_list = []
 
-            # Store selections
-            st.session_state['multi_match_selections'][key_home] = sel_home
-            st.session_state['multi_match_selections'][key_away] = sel_away
+            for kambi_match in kambi_matches:
+                # Skip matches without odds
+                if not kambi_match.has_odds:
+                    continue
 
-            odds_home_1x2, odds_draw_1x2, odds_away_1x2 = "-", "-", "-"
-            odds_dnb_home, odds_dnb_away = "-", "-"
-            
-            if sel_home != "---" and sel_away != "---" and sel_home != sel_away:
                 try:
-                    h_rating = home_table[home_table["Team"] == sel_home].iloc[0]['Rating']
-                    a_rating = away_table[away_table["Team"] == sel_away].iloc[0]['Rating']
-                    
+                    # Find matching teams in Elo ratings
+                    # Try fuzzy matching with team names
+                    home_match = None
+                    away_match = None
+
+                    for _, team_row in home_table.iterrows():
+                        team_name = team_row['Team']
+                        if normalize_team_name(team_name) == normalize_team_name(kambi_match.home_team):
+                            home_match = team_row
+                            break
+
+                    for _, team_row in away_table.iterrows():
+                        team_name = team_row['Team']
+                        if normalize_team_name(team_name) == normalize_team_name(kambi_match.away_team):
+                            away_match = team_row
+                            break
+
+                    # Skip if we can't find Elo ratings
+                    if home_match is None or away_match is None:
+                        continue
+
+                    home_rating = home_match['Rating']
+                    away_rating = away_match['Rating']
+
+                    # Calculate Elo probabilities
                     p_h, p_draw, p_a = calculate_outcome_probabilities(
-                        h_rating,
-                        a_rating,
+                        home_rating,
+                        away_rating,
                         league_avg_draw,
                         league_avg_goals,
                     )
+
                     p_dnb_home = p_h / (p_h + p_a) if (p_h + p_a) > 0 else 0.5
                     p_dnb_away = 1 - p_dnb_home
                     min_prob = 1e-6
@@ -1231,82 +1266,140 @@ if st.session_state.get('data_fetched', False):
                     )
                     poisson_probs = poisson_markets["probabilities"]
 
-                    odds_1x2 = apply_margin(
-                        [
-                            poisson_probs["home"],
-                            poisson_probs["draw"],
-                            poisson_probs["away"],
-                        ],
-                        multi_margin,
+                    # Calculate EV
+                    elo_probs = {
+                        'home': poisson_probs['home'],
+                        'draw': poisson_probs['draw'],
+                        'away': poisson_probs['away']
+                    }
+
+                    bookmaker_odds_dict = {
+                        'home': kambi_match.odds_home,
+                        'draw': kambi_match.odds_draw,
+                        'away': kambi_match.odds_away
+                    }
+
+                    ev_analysis = analyze_match_ev(elo_probs, bookmaker_odds_dict)
+
+                    # Get best EV value (could be negative)
+                    best_ev_value = max(
+                        ev_analysis.home_ev.expected_value,
+                        ev_analysis.draw_ev.expected_value,
+                        ev_analysis.away_ev.expected_value
                     )
-                    dnb_probs = [p_dnb_home, p_dnb_away]
-                    adjusted_dnb = apply_margin(dnb_probs, multi_margin)
 
-                    odds_home_1x2 = f"{odds_1x2[0]:.2f}"
-                    odds_draw_1x2 = f"{odds_1x2[1]:.2f}"
-                    odds_away_1x2 = f"{odds_1x2[2]:.2f}"
-                    odds_dnb_home = f"{adjusted_dnb[0]:.2f}"
-                    odds_dnb_away = f"{adjusted_dnb[1]:.2f}"
-                except (IndexError, TypeError):
-                    # One of the teams might not be in the table (e.g., if lists differ)
-                    odds_home_1x2, odds_draw_1x2, odds_away_1x2 = "Err", "Err", "Err"
-                    odds_dnb_home, odds_dnb_away = "Err", "Err"
+                    # Apply filter
+                    if best_ev_value * 100 < min_ev_filter:
+                        continue
 
-            with col3:
-                st.markdown(
-                    f"""
-                <div class="odds-box odds-box--compact">
-                    <div class="odds-box-title">1X2</div>
-                    <div class="odds-box-subtitle">Home</div>
-                    <div class="odds-box-value">{odds_home_1x2}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-            with col4:
-                st.markdown(
-                    f"""
-                <div class="odds-box odds-box--compact">
-                    <div class="odds-box-title">1X2</div>
-                    <div class="odds-box-subtitle">Draw</div>
-                    <div class="odds-box-value">{odds_draw_1x2}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-            with col5:
-                st.markdown(
-                    f"""
-                <div class="odds-box odds-box--compact">
-                    <div class="odds-box-title">1X2</div>
-                    <div class="odds-box-subtitle">Away</div>
-                    <div class="odds-box-value">{odds_away_1x2}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-            with col6:
-                st.markdown(
-                    f"""
-                <div class="odds-box odds-box--compact">
-                    <div class="odds-box-title">AH 0</div>
-                    <div class="odds-box-subtitle">Home</div>
-                    <div class="odds-box-value">{odds_dnb_home}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-            with col7:
-                st.markdown(
-                    f"""
-                <div class="odds-box odds-box--compact">
-                    <div class="odds-box-title">AH 0</div>
-                    <div class="odds-box-subtitle">Away</div>
-                    <div class="odds-box-value">{odds_dnb_away}</div>
-                </div>
-                """,
-                    unsafe_allow_html=True,
-                )
+                    # Store match data
+                    match_data_list.append({
+                        'match': kambi_match,
+                        'elo_probs': elo_probs,
+                        'ev_analysis': ev_analysis,
+                        'best_ev': best_ev_value
+                    })
+
+                except Exception as e:
+                    logger.warning(f"Failed to process match {kambi_match.home_team} vs {kambi_match.away_team}: {e}")
+                    continue
+
+            if not match_data_list:
+                st.info(f"No matches found with EV above {min_ev_filter:.1f}%. Try lowering the EV filter.")
+            else:
+                # Sort by best EV descending
+                match_data_list.sort(key=lambda x: x['best_ev'], reverse=True)
+
+                st.write(f"**Showing {len(match_data_list)} match(es) with value betting opportunities:**")
+                st.markdown("---")
+
+                # Display each match
+                for match_data in match_data_list:
+                    kambi_match = match_data['match']
+                    elo_probs = match_data['elo_probs']
+                    ev_analysis = match_data['ev_analysis']
+
+                    # Determine best value outcome
+                    if ev_analysis.has_any_value:
+                        best = ev_analysis.best_value
+                        value_indicator = f"🎯 **Best Value: {best.outcome.upper()} @ {best.bookmaker_odds:.2f} (EV: {best.ev_percentage_str})**"
+                    else:
+                        value_indicator = "No positive EV found"
+
+                    # Match header
+                    with st.container():
+                        col_header1, col_header2, col_header3 = st.columns([3, 2, 2])
+
+                        with col_header1:
+                            st.markdown(f"### {kambi_match.home_team} vs {kambi_match.away_team}")
+                        with col_header2:
+                            st.caption(f"⏰ {kambi_match.start_time.strftime('%d %b, %H:%M UTC')}")
+                        with col_header3:
+                            if ev_analysis.has_any_value and ev_analysis.best_value.expected_value > 0.05:
+                                st.success(value_indicator)
+                            elif ev_analysis.has_any_value:
+                                st.info(value_indicator)
+                            else:
+                                st.caption(value_indicator)
+
+                        # Comparison table
+                        comparison_data = {
+                            'Outcome': ['Home (1)', 'Draw (X)', 'Away (2)'],
+                            'Elo Prob': [
+                                f"{elo_probs['home']:.1%}",
+                                f"{elo_probs['draw']:.1%}",
+                                f"{elo_probs['away']:.1%}"
+                            ],
+                            'Elo Odds': [
+                                f"{1/elo_probs['home']:.2f}",
+                                f"{1/elo_probs['draw']:.2f}",
+                                f"{1/elo_probs['away']:.2f}"
+                            ],
+                            'Kambi Odds': [
+                                f"{kambi_match.odds_home:.2f}",
+                                f"{kambi_match.odds_draw:.2f}",
+                                f"{kambi_match.odds_away:.2f}"
+                            ],
+                            'EV': [
+                                ev_analysis.home_ev.ev_percentage_str,
+                                ev_analysis.draw_ev.ev_percentage_str,
+                                ev_analysis.away_ev.ev_percentage_str
+                            ]
+                        }
+
+                        comparison_df = pd.DataFrame(comparison_data)
+
+                        # Style with color coding
+                        def highlight_ev_multi(row):
+                            ev_str = row['EV']
+                            ev_val = float(ev_str.replace('%', '').replace('+', '')) / 100
+
+                            if ev_val > 0.05:  # >5% EV
+                                color = '#90EE90'  # Light green
+                            elif ev_val > 0:  # Positive but small
+                                color = '#FFFFE0'  # Light yellow
+                            elif ev_val < -0.05:  # Bad value
+                                color = '#FFB6C6'  # Light red
+                            else:
+                                color = ''
+
+                            return [f'background-color: {color}' if color else '' for _ in row]
+
+                        st.dataframe(
+                            comparison_df.style.apply(highlight_ev_multi, axis=1),
+                            hide_index=True,
+                            use_container_width=True
+                        )
+
+                        # Kelly Criterion for best bet
+                        if ev_analysis.has_any_value and ev_analysis.best_value.expected_value > 0:
+                            best = ev_analysis.best_value
+                            kelly_quarter = kelly_criterion(best.true_probability, best.bookmaker_odds, fraction=0.25)
+                            kelly_half = kelly_criterion(best.true_probability, best.bookmaker_odds, fraction=0.5)
+
+                            st.caption(f"💰 **Suggested Stakes:** Quarter Kelly: {kelly_quarter:.2%} | Half Kelly: {kelly_half:.2%}")
+
+                        st.markdown("---")
 
 
 else:
