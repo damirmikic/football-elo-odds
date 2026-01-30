@@ -49,6 +49,37 @@ class TeamMapping:
         }
 
 
+class LeagueMapping:
+    """Represents a league name mapping between Kambi and Elo systems."""
+
+    def __init__(
+        self,
+        id: Optional[int] = None,
+        kambi_league_name: str = "",
+        elo_league_key: str = "",
+        confidence: str = "manual",
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+    ):
+        self.id = id
+        self.kambi_league_name = kambi_league_name
+        self.elo_league_key = elo_league_key
+        self.confidence = confidence  # 'manual', 'auto_high', 'auto_medium', 'auto_low'
+        self.created_at = created_at or datetime.now()
+        self.updated_at = updated_at or datetime.now()
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'id': self.id,
+            'kambi_league_name': self.kambi_league_name,
+            'elo_league_key': self.elo_league_key,
+            'confidence': self.confidence,
+            'created_at': self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
+            'updated_at': self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else self.updated_at,
+        }
+
+
 class TeamMappingService:
     """Service for managing team name mappings with SQLite database."""
 
@@ -116,6 +147,38 @@ class TeamMappingService:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_unmapped_team_name
                 ON unmapped_teams(team_name)
+            """)
+
+            # Create league_mappings table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS league_mappings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kambi_league_name TEXT NOT NULL UNIQUE,
+                    elo_league_key TEXT NOT NULL,
+                    confidence TEXT NOT NULL DEFAULT 'manual',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_kambi_league_name
+                ON league_mappings(kambi_league_name)
+            """)
+
+            # Create unmapped_leagues table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS unmapped_leagues (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    league_name TEXT NOT NULL UNIQUE,
+                    last_seen TEXT NOT NULL,
+                    occurrence_count INTEGER DEFAULT 1
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_unmapped_league_name
+                ON unmapped_leagues(league_name)
             """)
 
             conn.commit()
@@ -395,6 +458,199 @@ class TeamMappingService:
             )
 
         logger.info(f"Imported {len(mappings)} mappings")
+
+    # League mapping methods
+    def add_league_mapping(
+        self,
+        kambi_league_name: str,
+        elo_league_key: str,
+        confidence: str = "manual"
+    ) -> LeagueMapping:
+        """Add or update a league mapping."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+
+            cursor.execute("""
+                INSERT INTO league_mappings
+                (kambi_league_name, elo_league_key, confidence, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(kambi_league_name)
+                DO UPDATE SET
+                    elo_league_key = excluded.elo_league_key,
+                    confidence = excluded.confidence,
+                    updated_at = excluded.updated_at
+            """, (kambi_league_name, elo_league_key, confidence, now, now))
+
+            conn.commit()
+            mapping_id = cursor.lastrowid
+
+            logger.info(f"Added/updated league mapping: {kambi_league_name} -> {elo_league_key}")
+
+            return LeagueMapping(
+                id=mapping_id,
+                kambi_league_name=kambi_league_name,
+                elo_league_key=elo_league_key,
+                confidence=confidence,
+                created_at=datetime.fromisoformat(now),
+                updated_at=datetime.fromisoformat(now)
+            )
+        finally:
+            conn.close()
+
+    def get_league_mapping(self, kambi_league_name: str) -> Optional[str]:
+        """Get the Elo league key for a Kambi league name."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT elo_league_key FROM league_mappings
+                WHERE kambi_league_name = ?
+            """, (kambi_league_name,))
+
+            row = cursor.fetchone()
+            return row['elo_league_key'] if row else None
+        finally:
+            conn.close()
+
+    def get_all_league_mappings(self) -> List[LeagueMapping]:
+        """Get all league mappings."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM league_mappings
+                ORDER BY kambi_league_name
+            """)
+
+            mappings = []
+            for row in cursor.fetchall():
+                mappings.append(LeagueMapping(
+                    id=row['id'],
+                    kambi_league_name=row['kambi_league_name'],
+                    elo_league_key=row['elo_league_key'],
+                    confidence=row['confidence'],
+                    created_at=datetime.fromisoformat(row['created_at']),
+                    updated_at=datetime.fromisoformat(row['updated_at'])
+                ))
+
+            return mappings
+        finally:
+            conn.close()
+
+    def delete_league_mapping(self, mapping_id: int) -> bool:
+        """Delete a league mapping by ID."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM league_mappings WHERE id = ?", (mapping_id,))
+            conn.commit()
+
+            deleted = cursor.rowcount > 0
+            if deleted:
+                logger.info(f"Deleted league mapping ID: {mapping_id}")
+            return deleted
+        finally:
+            conn.close()
+
+    def record_unmapped_league(self, league_name: str):
+        """Record a league that couldn't be mapped for future reference."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+
+            cursor.execute("""
+                INSERT INTO unmapped_leagues
+                (league_name, last_seen, occurrence_count)
+                VALUES (?, ?, 1)
+                ON CONFLICT(league_name)
+                DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    occurrence_count = occurrence_count + 1
+            """, (league_name, now))
+
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_unmapped_leagues(self) -> List[Dict]:
+        """Get list of unmapped leagues."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM unmapped_leagues
+                ORDER BY occurrence_count DESC, last_seen DESC
+            """)
+
+            unmapped = []
+            for row in cursor.fetchall():
+                unmapped.append({
+                    'id': row['id'],
+                    'league_name': row['league_name'],
+                    'last_seen': row['last_seen'],
+                    'occurrence_count': row['occurrence_count']
+                })
+
+            return unmapped
+        finally:
+            conn.close()
+
+    def suggest_league_mapping(
+        self,
+        kambi_league_name: str,
+        elo_league_keys: List[str],
+        auto_save: bool = False
+    ) -> Optional[Tuple[str, int, str]]:
+        """
+        Suggest a league mapping using fuzzy matching.
+
+        Returns (elo_league_key, score, confidence_level) or None.
+        If auto_save is True and score >= 90, saves the mapping automatically.
+        """
+        match_result = self.find_fuzzy_match(kambi_league_name, elo_league_keys, threshold=70)
+
+        if not match_result:
+            return None
+
+        elo_key, score = match_result
+
+        # Determine confidence level
+        if score >= 95:
+            confidence = "auto_high"
+        elif score >= 85:
+            confidence = "auto_medium"
+        else:
+            confidence = "auto_low"
+
+        # Auto-save high confidence matches
+        if auto_save and score >= 90:
+            self.add_league_mapping(
+                kambi_league_name=kambi_league_name,
+                elo_league_key=elo_key,
+                confidence=confidence
+            )
+            logger.info(f"Auto-saved league mapping: {kambi_league_name} -> {elo_key} (score: {score})")
+
+        return (elo_key, score, confidence)
+
+    def export_league_mappings(self) -> List[Dict]:
+        """Export all league mappings as JSON-serializable list."""
+        mappings = self.get_all_league_mappings()
+        return [m.to_dict() for m in mappings]
+
+    def import_league_mappings(self, mappings: List[Dict]):
+        """Import league mappings from JSON-serializable list."""
+        for mapping_data in mappings:
+            self.add_league_mapping(
+                kambi_league_name=mapping_data['kambi_league_name'],
+                elo_league_key=mapping_data['elo_league_key'],
+                confidence=mapping_data.get('confidence', 'manual')
+            )
+
+        logger.info(f"Imported {len(mappings)} league mappings")
 
 
 # Global singleton instance
