@@ -251,10 +251,17 @@ class KambiClient:
         league_id = event.get("groupId", 0)
         state = event.get("state", "")
 
-        # Exclude Esports and Cyber matches
-        excluded_leagues = ["Esports battle", "Cyber Live Arena"]
-        if any(excluded.lower() in league.lower() for excluded in excluded_leagues):
-            return None
+        # Exclude Esports and Cyber matches using keyword matching
+        league_lower = league.lower()
+        excluded_keywords = [
+            ["esports", "battle"],  # Matches any league with both "esports" AND "battle"
+            ["cyber", "live"],       # Matches any league with both "cyber" AND "live"
+            ["cyber", "arena"],      # Matches any league with both "cyber" AND "arena"
+        ]
+
+        for keywords in excluded_keywords:
+            if all(keyword in league_lower for keyword in keywords):
+                return None
 
         # Parse start time
         start_str = event.get("start", "")
