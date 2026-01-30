@@ -1173,10 +1173,12 @@ if st.session_state.get('data_fetched', False):
         st.caption("Automatically fetches upcoming matches from Kambi and identifies value betting opportunities")
 
         # Settings
-        col_settings1, col_settings2 = st.columns(2)
+        col_settings1, col_settings2, col_settings3 = st.columns(3)
         with col_settings1:
-            min_ev_filter = st.slider("Show matches with EV above:", -20.0, 20.0, 0.0, 1.0, format="%.1f%%", key="min_ev_filter")
+            min_ev_filter = st.slider("Filter: Show EV above:", -20.0, 20.0, -20.0, 1.0, format="%.1f%%", key="min_ev_filter", help="Set to -20% to see all matches")
         with col_settings2:
+            apply_filter = st.checkbox("Apply EV filter", value=False, key="apply_ev_filter", help="Uncheck to see all matches")
+        with col_settings3:
             include_live = st.checkbox("Include live matches", value=False, key="include_live_multi")
 
         st.markdown("---")
@@ -1288,11 +1290,7 @@ if st.session_state.get('data_fetched', False):
                         ev_analysis.away_ev.expected_value
                     )
 
-                    # Apply filter
-                    if best_ev_value * 100 < min_ev_filter:
-                        continue
-
-                    # Store match data
+                    # Store match data (no filtering at collection stage)
                     match_data_list.append({
                         'match': kambi_match,
                         'elo_probs': elo_probs,
@@ -1305,16 +1303,40 @@ if st.session_state.get('data_fetched', False):
                     continue
 
             if not match_data_list:
-                st.info(f"No matches found with EV above {min_ev_filter:.1f}%. Try lowering the EV filter.")
+                st.info(f"No matches with Elo ratings found. Teams may not be in the ratings database.")
             else:
                 # Sort by best EV descending
                 match_data_list.sort(key=lambda x: x['best_ev'], reverse=True)
 
-                st.write(f"**Showing {len(match_data_list)} match(es) with value betting opportunities:**")
+                # Calculate value distribution statistics
+                strong_value = len([m for m in match_data_list if m['best_ev'] > 0.05])
+                slight_value = len([m for m in match_data_list if 0 < m['best_ev'] <= 0.05])
+                no_value = len([m for m in match_data_list if m['best_ev'] <= 0])
+
+                # Display summary metrics
+                metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+                metric_col1.metric("Total Matches", len(match_data_list))
+                metric_col2.metric("Strong Value (>5%)", strong_value, delta=None if strong_value == 0 else "🎯")
+                metric_col3.metric("Slight Value (0-5%)", slight_value)
+                metric_col4.metric("No Value", no_value)
+
+                # Apply filter if enabled
+                if apply_filter:
+                    filtered_list = [m for m in match_data_list if m['best_ev'] * 100 >= min_ev_filter]
+                    if not filtered_list:
+                        st.warning(f"⚠️ No matches found with EV above {min_ev_filter:.1f}%. Showing all {len(match_data_list)} matches below.")
+                        display_list = match_data_list
+                    else:
+                        st.success(f"✓ Filter active: Showing {len(filtered_list)} of {len(match_data_list)} match(es) with EV ≥ {min_ev_filter:.1f}%")
+                        display_list = filtered_list
+                else:
+                    st.info(f"📋 Filter disabled: Showing all {len(match_data_list)} match(es)")
+                    display_list = match_data_list
+
                 st.markdown("---")
 
                 # Display each match
-                for match_data in match_data_list:
+                for match_data in display_list:
                     kambi_match = match_data['match']
                     elo_probs = match_data['elo_probs']
                     ev_analysis = match_data['ev_analysis']
