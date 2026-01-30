@@ -18,6 +18,11 @@ import config
 from ev_calculator import analyze_match_ev, kelly_criterion
 from kambi_client import KambiClient
 from odds import calculate_poisson_markets_from_dnb
+from team_mapping_db import get_mapping_service, TeamMappingService
+import logging
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 # Set page title and icon
 st.set_page_config(
@@ -217,6 +222,85 @@ def normalize_team_name(name: Any) -> str:
     name = re.sub(r'[^a-z0-9\s]', '', name)
     name = re.sub(r'\s\([ns]\)$', '', name)
     return ' '.join(name.split())
+
+
+def match_team_with_elo(
+    kambi_team_name: str,
+    elo_table: pd.DataFrame,
+    league_name: Optional[str] = None,
+    auto_save_threshold: int = 90
+) -> Optional[pd.Series]:
+    """
+    Match a Kambi team name to an Elo rating team using database and fuzzy matching.
+
+    Strategy:
+    1. Check team mapping database for exact match
+    2. Try normalized exact match against Elo table
+    3. Try fuzzy matching with auto-save if confidence high enough
+    4. Record unmapped team for admin review
+
+    Args:
+        kambi_team_name: Team name from Kambi API
+        elo_table: DataFrame with Elo ratings
+        league_name: Optional league filter for mapping
+        auto_save_threshold: Minimum fuzzy score to auto-save (default: 90)
+
+    Returns:
+        Matched team row from Elo table, or None if no match found
+    """
+    mapping_service = get_mapping_service()
+
+    # Strategy 1: Check database mapping
+    mapped_elo_name = mapping_service.get_mapping(kambi_team_name, league_name)
+    if mapped_elo_name:
+        # Find the exact team in Elo table
+        for _, team_row in elo_table.iterrows():
+            if team_row['Team'] == mapped_elo_name:
+                logger.info(f"✓ Database match: '{kambi_team_name}' -> '{mapped_elo_name}'")
+                return team_row
+
+    # Strategy 2: Try normalized exact match
+    normalized_kambi = normalize_team_name(kambi_team_name)
+    for _, team_row in elo_table.iterrows():
+        elo_team_name = team_row['Team']
+        if normalize_team_name(elo_team_name) == normalized_kambi:
+            logger.info(f"✓ Normalized match: '{kambi_team_name}' -> '{elo_team_name}'")
+            # Optionally save this mapping for future
+            mapping_service.add_mapping(
+                kambi_team_name=kambi_team_name,
+                elo_team_name=elo_team_name,
+                league_filter=league_name,
+                confidence="auto_high"
+            )
+            return team_row
+
+    # Strategy 3: Try fuzzy matching
+    elo_team_names = elo_table['Team'].tolist()
+    suggestion = mapping_service.suggest_mapping(
+        kambi_team_name=kambi_team_name,
+        elo_team_names=elo_team_names,
+        auto_save=(auto_save_threshold > 0),
+        league_filter=league_name
+    )
+
+    if suggestion:
+        elo_name, score, confidence = suggestion
+        logger.info(f"✓ Fuzzy match: '{kambi_team_name}' -> '{elo_name}' (score: {score}, confidence: {confidence})")
+
+        # Find and return the team row
+        for _, team_row in elo_table.iterrows():
+            if team_row['Team'] == elo_name:
+                return team_row
+
+    # Strategy 4: No match found - record for admin review
+    logger.warning(f"✗ No match found for Kambi team: '{kambi_team_name}'")
+    mapping_service.record_unmapped_team(
+        team_name=kambi_team_name,
+        source="kambi",
+        league=league_name
+    )
+
+    return None
 
 def safe_float(value: Any, default: float = 0.0) -> float:
     """Converts a value to float, handling percentage strings and errors.
@@ -893,7 +977,7 @@ if st.session_state.get('data_fetched', False):
     )
 
     # --- Main Tabs ---
-    tab1, tab2 = st.tabs(["Single Match Analysis", "Multi-Match Calculator"])
+    tab1, tab2, tab3 = st.tabs(["Single Match Analysis", "Multi-Match Calculator", "⚙️ Team Mapping Admin"])
 
     with tab1:
         with st.expander("📈 League-Wide Stats", expanded=True):
@@ -1214,155 +1298,223 @@ if st.session_state.get('data_fetched', False):
         else:
             st.success(f"✓ Found {len(kambi_matches)} upcoming match(es)")
 
-            # Process each match
+            # Process each match - store ALL matches with status indicators
             match_data_list = []
+            matched_count = 0
+            no_odds_count = 0
+            no_elo_count = 0
 
             for kambi_match in kambi_matches:
-                # Skip matches without odds
+                match_status = "matched"  # Default status
+                status_reason = None
+                elo_probs = None
+                ev_analysis = None
+                best_ev_value = None
+
+                # Check if match has odds
                 if not kambi_match.has_odds:
-                    continue
+                    match_status = "no_odds"
+                    status_reason = "Odds not available yet"
+                    no_odds_count += 1
+                else:
+                    try:
+                        # Find matching teams in Elo ratings using new helper
+                        home_match = match_team_with_elo(
+                            kambi_match.home_team,
+                            home_table,
+                            league_name=selected_league
+                        )
+                        away_match = match_team_with_elo(
+                            kambi_match.away_team,
+                            away_table,
+                            league_name=selected_league
+                        )
 
-                try:
-                    # Find matching teams in Elo ratings
-                    # Try fuzzy matching with team names
-                    home_match = None
-                    away_match = None
+                        # Check if we found both teams
+                        if home_match is None or away_match is None:
+                            match_status = "no_elo"
+                            missing_teams = []
+                            if home_match is None:
+                                missing_teams.append(kambi_match.home_team)
+                            if away_match is None:
+                                missing_teams.append(kambi_match.away_team)
+                            status_reason = f"No Elo rating found for: {', '.join(missing_teams)}"
+                            no_elo_count += 1
+                        else:
+                            # Successfully matched both teams - calculate EV
+                            home_rating = home_match['Rating']
+                            away_rating = away_match['Rating']
 
-                    for _, team_row in home_table.iterrows():
-                        team_name = team_row['Team']
-                        if normalize_team_name(team_name) == normalize_team_name(kambi_match.home_team):
-                            home_match = team_row
-                            break
+                            # Calculate Elo probabilities
+                            p_h, p_draw, p_a = calculate_outcome_probabilities(
+                                home_rating,
+                                away_rating,
+                                league_avg_draw,
+                                league_avg_goals,
+                            )
 
-                    for _, team_row in away_table.iterrows():
-                        team_name = team_row['Team']
-                        if normalize_team_name(team_name) == normalize_team_name(kambi_match.away_team):
-                            away_match = team_row
-                            break
+                            p_dnb_home = p_h / (p_h + p_a) if (p_h + p_a) > 0 else 0.5
+                            p_dnb_away = 1 - p_dnb_home
+                            min_prob = 1e-6
+                            fair_dnb_home = 1 / max(p_dnb_home, min_prob)
+                            fair_dnb_away = 1 / max(p_dnb_away, min_prob)
 
-                    # Skip if we can't find Elo ratings
-                    if home_match is None or away_match is None:
-                        continue
+                            poisson_markets = calculate_poisson_markets_from_dnb(
+                                fair_dnb_home,
+                                fair_dnb_away,
+                                league_avg_goals,
+                            )
+                            poisson_probs = poisson_markets["probabilities"]
 
-                    home_rating = home_match['Rating']
-                    away_rating = away_match['Rating']
+                            # Calculate EV
+                            elo_probs = {
+                                'home': poisson_probs['home'],
+                                'draw': poisson_probs['draw'],
+                                'away': poisson_probs['away']
+                            }
 
-                    # Calculate Elo probabilities
-                    p_h, p_draw, p_a = calculate_outcome_probabilities(
-                        home_rating,
-                        away_rating,
-                        league_avg_draw,
-                        league_avg_goals,
-                    )
+                            bookmaker_odds_dict = {
+                                'home': kambi_match.odds_home,
+                                'draw': kambi_match.odds_draw,
+                                'away': kambi_match.odds_away
+                            }
 
-                    p_dnb_home = p_h / (p_h + p_a) if (p_h + p_a) > 0 else 0.5
-                    p_dnb_away = 1 - p_dnb_home
-                    min_prob = 1e-6
-                    fair_dnb_home = 1 / max(p_dnb_home, min_prob)
-                    fair_dnb_away = 1 / max(p_dnb_away, min_prob)
+                            ev_analysis = analyze_match_ev(elo_probs, bookmaker_odds_dict)
 
-                    poisson_markets = calculate_poisson_markets_from_dnb(
-                        fair_dnb_home,
-                        fair_dnb_away,
-                        league_avg_goals,
-                    )
-                    poisson_probs = poisson_markets["probabilities"]
+                            # Get best EV value (could be negative)
+                            best_ev_value = max(
+                                ev_analysis.home_ev.expected_value,
+                                ev_analysis.draw_ev.expected_value,
+                                ev_analysis.away_ev.expected_value
+                            )
 
-                    # Calculate EV
-                    elo_probs = {
-                        'home': poisson_probs['home'],
-                        'draw': poisson_probs['draw'],
-                        'away': poisson_probs['away']
-                    }
+                            match_status = "matched"
+                            matched_count += 1
 
-                    bookmaker_odds_dict = {
-                        'home': kambi_match.odds_home,
-                        'draw': kambi_match.odds_draw,
-                        'away': kambi_match.odds_away
-                    }
+                    except Exception as e:
+                        match_status = "error"
+                        status_reason = f"Error: {str(e)}"
+                        logger.error(f"Failed to process match {kambi_match.home_team} vs {kambi_match.away_team}: {e}", exc_info=True)
 
-                    ev_analysis = analyze_match_ev(elo_probs, bookmaker_odds_dict)
+                # Store ALL matches with their status
+                match_data_list.append({
+                    'match': kambi_match,
+                    'status': match_status,
+                    'status_reason': status_reason,
+                    'elo_probs': elo_probs,
+                    'ev_analysis': ev_analysis,
+                    'best_ev': best_ev_value
+                })
 
-                    # Get best EV value (could be negative)
-                    best_ev_value = max(
-                        ev_analysis.home_ev.expected_value,
-                        ev_analysis.draw_ev.expected_value,
-                        ev_analysis.away_ev.expected_value
-                    )
+            # Display summary statistics
+            st.markdown("### 📊 Match Processing Summary")
+            summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+            summary_col1.metric("Total Matches", len(kambi_matches))
+            summary_col2.metric("✅ Matched & Analyzed", matched_count)
+            summary_col3.metric("⚠️ No Elo Ratings", no_elo_count)
+            summary_col4.metric("🔒 No Odds Yet", no_odds_count)
 
-                    # Store match data (no filtering at collection stage)
-                    match_data_list.append({
-                        'match': kambi_match,
-                        'elo_probs': elo_probs,
-                        'ev_analysis': ev_analysis,
-                        'best_ev': best_ev_value
-                    })
+            if matched_count == 0:
+                st.warning(f"⚠️ None of the {len(kambi_matches)} matches could be analyzed. See details below.")
 
-                except Exception as e:
-                    logger.warning(f"Failed to process match {kambi_match.home_team} vs {kambi_match.away_team}: {e}")
-                    continue
+            if no_elo_count > 0:
+                st.info(f"💡 **Tip:** {no_elo_count} match(es) couldn't be matched to Elo ratings. Visit the **Team Mapping Admin** tab to create manual mappings.")
 
-            if not match_data_list:
-                st.info(f"No matches with Elo ratings found. Teams may not be in the ratings database.")
-            else:
-                # Sort by best EV descending
-                match_data_list.sort(key=lambda x: x['best_ev'], reverse=True)
+            # Sort by status (matched first) then by best EV
+            def sort_key(m):
+                if m['status'] == 'matched':
+                    return (0, -m['best_ev'] if m['best_ev'] is not None else 0)
+                elif m['status'] == 'no_odds':
+                    return (2, 0)
+                elif m['status'] == 'no_elo':
+                    return (1, 0)
+                else:  # error
+                    return (3, 0)
 
-                # Calculate value distribution statistics
-                strong_value = len([m for m in match_data_list if m['best_ev'] > 0.05])
-                slight_value = len([m for m in match_data_list if 0 < m['best_ev'] <= 0.05])
-                no_value = len([m for m in match_data_list if m['best_ev'] <= 0])
+            match_data_list.sort(key=sort_key)
 
-                # Display summary metrics
+            # Get matched matches for value statistics
+            matched_matches = [m for m in match_data_list if m['status'] == 'matched']
+
+            # Calculate value distribution statistics (only for matched)
+            if matched_matches:
+                strong_value = len([m for m in matched_matches if m['best_ev'] > 0.05])
+                slight_value = len([m for m in matched_matches if 0 < m['best_ev'] <= 0.05])
+                no_value = len([m for m in matched_matches if m['best_ev'] <= 0])
+
+                # Display value metrics
+                st.markdown("### 💰 Value Opportunities")
                 metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-                metric_col1.metric("Total Matches", len(match_data_list))
-                metric_col2.metric("Strong Value (>5%)", strong_value, delta=None if strong_value == 0 else "🎯")
+                metric_col1.metric("Analyzed Matches", len(matched_matches))
+                metric_col2.metric("🎯 Strong Value (>5%)", strong_value, delta=None if strong_value == 0 else "Found!")
                 metric_col3.metric("Slight Value (0-5%)", slight_value)
                 metric_col4.metric("No Value", no_value)
 
-                # Apply filter if enabled
-                if apply_filter:
-                    filtered_list = [m for m in match_data_list if m['best_ev'] * 100 >= min_ev_filter]
-                    if not filtered_list:
-                        st.warning(f"⚠️ No matches found with EV above {min_ev_filter:.1f}%. Showing all {len(match_data_list)} matches below.")
-                        display_list = match_data_list
-                    else:
-                        st.success(f"✓ Filter active: Showing {len(filtered_list)} of {len(match_data_list)} match(es) with EV ≥ {min_ev_filter:.1f}%")
-                        display_list = filtered_list
+            # Apply filter if enabled (only to matched matches)
+            if apply_filter and matched_matches:
+                filtered_list = [m for m in matched_matches if m['best_ev'] * 100 >= min_ev_filter]
+                if not filtered_list:
+                    st.warning(f"⚠️ No matches found with EV above {min_ev_filter:.1f}%. Showing all matches below.")
+                    display_list = match_data_list  # Show all including unmatched
                 else:
+                    st.success(f"✓ Filter active: Showing {len(filtered_list)} value bet(s) with EV ≥ {min_ev_filter:.1f}%")
+                    # Show filtered matched + all unmatched
+                    display_list = filtered_list + [m for m in match_data_list if m['status'] != 'matched']
+            else:
+                if matched_matches:
                     st.info(f"📋 Filter disabled: Showing all {len(match_data_list)} match(es)")
-                    display_list = match_data_list
+                display_list = match_data_list
 
-                st.markdown("---")
+            st.markdown("---")
 
-                # Display each match
-                for match_data in display_list:
-                    kambi_match = match_data['match']
-                    elo_probs = match_data['elo_probs']
-                    ev_analysis = match_data['ev_analysis']
+            # Display each match with status-aware rendering
+            for match_data in display_list:
+                kambi_match = match_data['match']
+                status = match_data['status']
+                status_reason = match_data['status_reason']
+                elo_probs = match_data['elo_probs']
+                ev_analysis = match_data['ev_analysis']
 
-                    # Determine best value outcome
-                    if ev_analysis.has_any_value:
-                        best = ev_analysis.best_value
-                        value_indicator = f"🎯 **Best Value: {best.outcome.upper()} @ {best.bookmaker_odds:.2f} (EV: {best.ev_percentage_str})**"
-                    else:
-                        value_indicator = "No positive EV found"
+                # Status indicator color and icon
+                if status == 'matched':
+                    status_icon = "✅"
+                    status_color = "green"
+                elif status == 'no_elo':
+                    status_icon = "⚠️"
+                    status_color = "orange"
+                elif status == 'no_odds':
+                    status_icon = "🔒"
+                    status_color = "gray"
+                else:  # error
+                    status_icon = "❌"
+                    status_color = "red"
 
-                    # Match header
-                    with st.container():
-                        col_header1, col_header2, col_header3 = st.columns([3, 2, 2])
+                # Match header
+                with st.container():
+                    col_header1, col_header2, col_header3 = st.columns([3, 2, 2])
 
-                        with col_header1:
-                            st.markdown(f"### {kambi_match.home_team} vs {kambi_match.away_team}")
-                        with col_header2:
-                            st.caption(f"⏰ {kambi_match.start_time.strftime('%d %b, %H:%M UTC')}")
-                        with col_header3:
-                            if ev_analysis.has_any_value and ev_analysis.best_value.expected_value > 0.05:
-                                st.success(value_indicator)
-                            elif ev_analysis.has_any_value:
-                                st.info(value_indicator)
+                    with col_header1:
+                        st.markdown(f"### {status_icon} {kambi_match.home_team} vs {kambi_match.away_team}")
+                    with col_header2:
+                        st.caption(f"⏰ {kambi_match.start_time.strftime('%d %b, %H:%M UTC')}")
+                    with col_header3:
+                        if status == 'matched':
+                            # Determine best value outcome
+                            if ev_analysis.has_any_value:
+                                best = ev_analysis.best_value
+                                value_indicator = f"🎯 **{best.outcome.upper()} @ {best.bookmaker_odds:.2f} (EV: {best.ev_percentage_str})**"
+                                if best.expected_value > 0.05:
+                                    st.success(value_indicator)
+                                else:
+                                    st.info(value_indicator)
                             else:
-                                st.caption(value_indicator)
+                                st.caption("No positive EV found")
+                        else:
+                            # Show status reason for unmatched
+                            st.warning(status_reason)
+
+                    # Only show detailed analysis for matched matches
+                    if status == 'matched':
 
                         # Comparison table
                         comparison_data = {
@@ -1422,6 +1574,268 @@ if st.session_state.get('data_fetched', False):
                             st.caption(f"💰 **Suggested Stakes:** Quarter Kelly: {kelly_quarter:.2%} | Half Kelly: {kelly_half:.2%}")
 
                         st.markdown("---")
+
+    with tab3:
+        st.subheader("⚙️ Team Mapping Administration")
+        st.caption("Manage team name mappings between Kambi and Elo rating systems")
+
+        mapping_service = get_mapping_service()
+
+        # Create tabs within admin section
+        admin_tab1, admin_tab2, admin_tab3 = st.tabs(["📝 Add Mapping", "📋 View All Mappings", "⚠️ Unmapped Teams"])
+
+        with admin_tab1:
+            st.markdown("### Add New Team Mapping")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                kambi_name = st.text_input(
+                    "Kambi Team Name",
+                    placeholder="e.g., Man City",
+                    help="Team name as it appears in Kambi API",
+                    key="new_kambi_name"
+                )
+
+            with col2:
+                # Get available Elo teams for dropdown
+                if home_table is not None and not home_table.empty:
+                    all_elo_teams = sorted(set(home_table['Team'].tolist() + away_table['Team'].tolist()))
+                    elo_name = st.selectbox(
+                        "Elo Team Name",
+                        options=[""] + all_elo_teams,
+                        help="Select the matching team from Elo ratings",
+                        key="new_elo_name"
+                    )
+                else:
+                    elo_name = st.text_input(
+                        "Elo Team Name",
+                        placeholder="e.g., Manchester City",
+                        help="Team name as it appears in Elo ratings",
+                        key="new_elo_name_text"
+                    )
+
+            league_specific = st.checkbox(
+                "Make this mapping league-specific",
+                value=False,
+                help="If checked, mapping only applies to the currently selected league",
+                key="league_specific"
+            )
+
+            league_filter_value = selected_league if league_specific else None
+
+            if league_specific:
+                st.info(f"This mapping will only apply to: **{selected_league}**")
+
+            col_button1, col_button2 = st.columns([1, 3])
+            with col_button1:
+                if st.button("➕ Add Mapping", type="primary", key="add_mapping_btn"):
+                    if kambi_name and elo_name:
+                        try:
+                            mapping_service.add_mapping(
+                                kambi_team_name=kambi_name,
+                                elo_team_name=elo_name,
+                                league_filter=league_filter_value,
+                                confidence="manual"
+                            )
+                            st.success(f"✅ Added mapping: '{kambi_name}' → '{elo_name}'")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Failed to add mapping: {e}")
+                    else:
+                        st.warning("⚠️ Please fill in both team names")
+
+            # Fuzzy match suggestion tool
+            st.markdown("---")
+            st.markdown("### 🔍 Fuzzy Match Suggester")
+            st.caption("Find the best match for a Kambi team name")
+
+            suggest_kambi_name = st.text_input(
+                "Kambi Team Name to Match",
+                placeholder="e.g., Man Utd",
+                key="suggest_kambi_name"
+            )
+
+            if suggest_kambi_name and home_table is not None:
+                all_elo_teams = sorted(set(home_table['Team'].tolist() + away_table['Team'].tolist()))
+                suggestion = mapping_service.suggest_mapping(
+                    kambi_team_name=suggest_kambi_name,
+                    elo_team_names=all_elo_teams,
+                    auto_save=False
+                )
+
+                if suggestion:
+                    suggested_elo, score, confidence = suggestion
+                    st.success(f"🎯 Best match: **{suggested_elo}** (Score: {score}, Confidence: {confidence})")
+
+                    if st.button("✅ Accept & Save This Mapping", key="accept_suggestion"):
+                        mapping_service.add_mapping(
+                            kambi_team_name=suggest_kambi_name,
+                            elo_team_name=suggested_elo,
+                            league_filter=league_filter_value if league_specific else None,
+                            confidence=confidence
+                        )
+                        st.success(f"✅ Saved mapping: '{suggest_kambi_name}' → '{suggested_elo}'")
+                        st.rerun()
+                else:
+                    st.warning("⚠️ No good match found (threshold: 70% similarity)")
+
+        with admin_tab2:
+            st.markdown("### All Team Mappings")
+
+            mappings = mapping_service.get_all_mappings()
+
+            if mappings:
+                # Convert to display format
+                mapping_data = []
+                for m in mappings:
+                    mapping_data.append({
+                        'ID': m.id,
+                        'Kambi Team': m.kambi_team_name,
+                        'Elo Team': m.elo_team_name,
+                        'League': m.league_filter or 'All',
+                        'Confidence': m.confidence,
+                        'Updated': m.updated_at.strftime('%Y-%m-%d %H:%M') if isinstance(m.updated_at, datetime) else m.updated_at
+                    })
+
+                df = pd.DataFrame(mapping_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+                st.caption(f"Total: {len(mappings)} mapping(s)")
+
+                # Delete mapping section
+                st.markdown("---")
+                st.markdown("### 🗑️ Delete Mapping")
+
+                mapping_to_delete = st.number_input(
+                    "Enter Mapping ID to delete",
+                    min_value=1,
+                    step=1,
+                    key="delete_mapping_id"
+                )
+
+                col_del1, col_del2 = st.columns([1, 3])
+                with col_del1:
+                    if st.button("🗑️ Delete", type="secondary", key="delete_mapping_btn"):
+                        if mapping_service.delete_mapping(mapping_to_delete):
+                            st.success(f"✅ Deleted mapping ID {mapping_to_delete}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Mapping ID {mapping_to_delete} not found")
+
+                # Export/Import
+                st.markdown("---")
+                st.markdown("### 📦 Export/Import")
+
+                col_exp1, col_exp2 = st.columns(2)
+
+                with col_exp1:
+                    if st.button("📥 Export All Mappings (JSON)", key="export_mappings"):
+                        export_data = mapping_service.export_mappings()
+                        json_str = json.dumps(export_data, indent=2)
+                        st.download_button(
+                            label="⬇️ Download JSON",
+                            data=json_str,
+                            file_name="team_mappings.json",
+                            mime="application/json"
+                        )
+
+                with col_exp2:
+                    uploaded_file = st.file_uploader(
+                        "📤 Import Mappings (JSON)",
+                        type=['json'],
+                        key="import_mappings"
+                    )
+                    if uploaded_file is not None:
+                        try:
+                            import_data = json.load(uploaded_file)
+                            mapping_service.import_mappings(import_data)
+                            st.success(f"✅ Imported {len(import_data)} mappings")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Failed to import: {e}")
+
+            else:
+                st.info("No team mappings yet. Add your first mapping in the 'Add Mapping' tab!")
+
+        with admin_tab3:
+            st.markdown("### Unmapped Teams")
+            st.caption("Teams that couldn't be matched automatically during recent scans")
+
+            unmapped = mapping_service.get_unmapped_teams()
+
+            if unmapped:
+                # Convert to display format
+                unmapped_data = []
+                for u in unmapped:
+                    unmapped_data.append({
+                        'Team Name': u['team_name'],
+                        'Source': u['source'],
+                        'League': u['league'] or 'Unknown',
+                        'Last Seen': u['last_seen'],
+                        'Occurrences': u['occurrence_count']
+                    })
+
+                df = pd.DataFrame(unmapped_data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+                st.caption(f"Total: {len(unmapped)} unmapped team(s)")
+
+                # Quick mapping tool
+                st.markdown("---")
+                st.markdown("### ⚡ Quick Map from Unmapped")
+
+                if home_table is not None and not home_table.empty:
+                    unmapped_team_options = [u['team_name'] for u in unmapped]
+                    selected_unmapped = st.selectbox(
+                        "Select Unmapped Team",
+                        options=unmapped_team_options,
+                        key="quick_map_unmapped"
+                    )
+
+                    if selected_unmapped:
+                        # Auto-suggest
+                        all_elo_teams = sorted(set(home_table['Team'].tolist() + away_table['Team'].tolist()))
+                        suggestion = mapping_service.suggest_mapping(
+                            kambi_team_name=selected_unmapped,
+                            elo_team_names=all_elo_teams,
+                            auto_save=False
+                        )
+
+                        if suggestion:
+                            suggested_elo, score, confidence = suggestion
+                            st.info(f"💡 Suggested match: **{suggested_elo}** (Score: {score})")
+
+                            selected_elo = st.selectbox(
+                                "Elo Team Name",
+                                options=[suggested_elo] + [t for t in all_elo_teams if t != suggested_elo],
+                                key="quick_map_elo"
+                            )
+                        else:
+                            selected_elo = st.selectbox(
+                                "Elo Team Name",
+                                options=all_elo_teams,
+                                key="quick_map_elo_no_suggestion"
+                            )
+
+                        if st.button("✅ Create Mapping", key="quick_map_create"):
+                            mapping_service.add_mapping(
+                                kambi_team_name=selected_unmapped,
+                                elo_team_name=selected_elo,
+                                confidence="manual"
+                            )
+                            st.success(f"✅ Created mapping: '{selected_unmapped}' → '{selected_elo}'")
+                            st.rerun()
+
+                # Clear unmapped teams
+                st.markdown("---")
+                if st.button("🗑️ Clear All Unmapped Teams", type="secondary", key="clear_unmapped"):
+                    mapping_service.clear_unmapped_teams()
+                    st.success("✅ Cleared unmapped teams list")
+                    st.rerun()
+
+            else:
+                st.success("✅ No unmapped teams! All recent teams were matched successfully.")
 
 
 else:

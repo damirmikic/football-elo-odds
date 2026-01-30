@@ -132,3 +132,7 @@ Thumbs.db
 # Project specific
 logs/
 *.log
+
+# Team mapping database
+data/team_mappings.db
+data/team_mappings.db-journal
