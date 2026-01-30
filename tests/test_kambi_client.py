@@ -221,6 +221,81 @@ class TestKambiClient:
         assert match is not None
 
     @patch('kambi_client.requests.Session.get')
+    def test_parse_event_esports_excluded(self, mock_get):
+        """Test that Esports battle matches are excluded."""
+        client = KambiClient()
+
+        event_data = {
+            "event": {
+                "id": 1025052006,
+                "homeName": "Team A",
+                "awayName": "Team B",
+                "group": "Esports battle",
+                "groupId": 2000075067,
+                "start": "2026-01-30T15:00:00Z",
+                "state": "NOT_STARTED",
+                "path": [
+                    {"englishName": "Football"},
+                    {"englishName": "World"}
+                ]
+            },
+            "betOffers": []
+        }
+
+        match = client._parse_event(event_data)
+        assert match is None
+
+    @patch('kambi_client.requests.Session.get')
+    def test_parse_event_cyber_live_arena_excluded(self, mock_get):
+        """Test that Cyber Live Arena matches are excluded."""
+        client = KambiClient()
+
+        event_data = {
+            "event": {
+                "id": 1025052006,
+                "homeName": "Team X",
+                "awayName": "Team Y",
+                "group": "Cyber Live Arena",
+                "groupId": 2000075067,
+                "start": "2026-01-30T15:00:00Z",
+                "state": "NOT_STARTED",
+                "path": [
+                    {"englishName": "Football"},
+                    {"englishName": "World"}
+                ]
+            },
+            "betOffers": []
+        }
+
+        match = client._parse_event(event_data)
+        assert match is None
+
+    @patch('kambi_client.requests.Session.get')
+    def test_parse_event_esports_case_insensitive(self, mock_get):
+        """Test that Esports exclusion is case-insensitive."""
+        client = KambiClient()
+
+        event_data = {
+            "event": {
+                "id": 1025052006,
+                "homeName": "Team A",
+                "awayName": "Team B",
+                "group": "ESPORTS BATTLE",
+                "groupId": 2000075067,
+                "start": "2026-01-30T15:00:00Z",
+                "state": "NOT_STARTED",
+                "path": [
+                    {"englishName": "Football"},
+                    {"englishName": "World"}
+                ]
+            },
+            "betOffers": []
+        }
+
+        match = client._parse_event(event_data)
+        assert match is None
+
+    @patch('kambi_client.requests.Session.get')
     def test_get_all_football_matches_success(self, mock_get):
         """Test successful fetching of all football matches."""
         mock_response = MagicMock()

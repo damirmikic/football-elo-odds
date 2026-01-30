@@ -251,6 +251,11 @@ class KambiClient:
         league_id = event.get("groupId", 0)
         state = event.get("state", "")
 
+        # Exclude Esports and Cyber matches
+        excluded_leagues = ["Esports battle", "Cyber Live Arena"]
+        if any(excluded.lower() in league.lower() for excluded in excluded_leagues):
+            return None
+
         # Parse start time
         start_str = event.get("start", "")
         try:
