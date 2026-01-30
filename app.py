@@ -227,26 +227,26 @@ def normalize_team_name(name: Any) -> str:
 def match_team_with_elo(
     kambi_team_name: str,
     elo_table: pd.DataFrame,
-    league_name: Optional[str] = None,
-    auto_save_threshold: int = 90
-) -> Optional[pd.Series]:
+    league_name: Optional[str] = None
+) -> Tuple[Optional[pd.Series], Optional[Tuple[str, int, str]]]:
     """
     Match a Kambi team name to an Elo rating team using database and fuzzy matching.
 
     Strategy:
     1. Check team mapping database for exact match
-    2. Try normalized exact match against Elo table
-    3. Try fuzzy matching with auto-save if confidence high enough
+    2. Try normalized exact match against Elo table (auto-save this)
+    3. Try fuzzy matching - return suggestion but DON'T auto-save
     4. Record unmapped team for admin review
 
     Args:
         kambi_team_name: Team name from Kambi API
         elo_table: DataFrame with Elo ratings
         league_name: Optional league filter for mapping
-        auto_save_threshold: Minimum fuzzy score to auto-save (default: 90)
 
     Returns:
-        Matched team row from Elo table, or None if no match found
+        Tuple of (matched_team_row, suggestion)
+        - matched_team_row: Series from Elo table if matched, else None
+        - suggestion: (elo_name, score, confidence) if fuzzy match found, else None
     """
     mapping_service = get_mapping_service()
 
@@ -257,50 +257,49 @@ def match_team_with_elo(
         for _, team_row in elo_table.iterrows():
             if team_row['Team'] == mapped_elo_name:
                 logger.info(f"✓ Database match: '{kambi_team_name}' -> '{mapped_elo_name}'")
-                return team_row
+                return (team_row, None)
 
-    # Strategy 2: Try normalized exact match
+    # Strategy 2: Try normalized exact match (auto-save this since it's exact)
     normalized_kambi = normalize_team_name(kambi_team_name)
     for _, team_row in elo_table.iterrows():
         elo_team_name = team_row['Team']
         if normalize_team_name(elo_team_name) == normalized_kambi:
             logger.info(f"✓ Normalized match: '{kambi_team_name}' -> '{elo_team_name}'")
-            # Optionally save this mapping for future
+            # Auto-save normalized exact matches since they're reliable
             mapping_service.add_mapping(
                 kambi_team_name=kambi_team_name,
                 elo_team_name=elo_team_name,
                 league_filter=league_name,
                 confidence="auto_high"
             )
-            return team_row
+            return (team_row, None)
 
-    # Strategy 3: Try fuzzy matching
+    # Strategy 3: Try fuzzy matching - DON'T auto-save, just return suggestion
     elo_team_names = elo_table['Team'].tolist()
     suggestion = mapping_service.suggest_mapping(
         kambi_team_name=kambi_team_name,
         elo_team_names=elo_team_names,
-        auto_save=(auto_save_threshold > 0),
+        auto_save=False,  # Never auto-save fuzzy matches
         league_filter=league_name
     )
 
     if suggestion:
         elo_name, score, confidence = suggestion
-        logger.info(f"✓ Fuzzy match: '{kambi_team_name}' -> '{elo_name}' (score: {score}, confidence: {confidence})")
-
-        # Find and return the team row
-        for _, team_row in elo_table.iterrows():
-            if team_row['Team'] == elo_name:
-                return team_row
+        logger.info(f"💡 Fuzzy suggestion: '{kambi_team_name}' -> '{elo_name}' (score: {score}, confidence: {confidence})")
+        # Return None for match but include the suggestion
+        # User must manually confirm fuzzy matches
 
     # Strategy 4: No match found - record for admin review
-    logger.warning(f"✗ No match found for Kambi team: '{kambi_team_name}'")
+    if not suggestion:
+        logger.warning(f"✗ No match found for Kambi team: '{kambi_team_name}'")
+
     mapping_service.record_unmapped_team(
         team_name=kambi_team_name,
         source="kambi",
         league=league_name
     )
 
-    return None
+    return (None, suggestion)
 
 def safe_float(value: Any, default: float = 0.0) -> float:
     """Converts a value to float, handling percentage strings and errors.
@@ -1310,6 +1309,7 @@ if st.session_state.get('data_fetched', False):
                 elo_probs = None
                 ev_analysis = None
                 best_ev_value = None
+                suggestions = {}  # Store fuzzy match suggestions
 
                 # Check if match has odds
                 if not kambi_match.has_odds:
@@ -1319,26 +1319,41 @@ if st.session_state.get('data_fetched', False):
                 else:
                     try:
                         # Find matching teams in Elo ratings using new helper
-                        home_match = match_team_with_elo(
+                        home_match, home_suggestion = match_team_with_elo(
                             kambi_match.home_team,
                             home_table,
                             league_name=selected_league
                         )
-                        away_match = match_team_with_elo(
+                        away_match, away_suggestion = match_team_with_elo(
                             kambi_match.away_team,
                             away_table,
                             league_name=selected_league
                         )
 
+                        # Store suggestions for later display
+                        suggestions = {}
+                        if home_suggestion:
+                            suggestions['home'] = home_suggestion
+                        if away_suggestion:
+                            suggestions['away'] = away_suggestion
+
                         # Check if we found both teams
                         if home_match is None or away_match is None:
                             match_status = "no_elo"
-                            missing_teams = []
+                            missing_info = []
                             if home_match is None:
-                                missing_teams.append(kambi_match.home_team)
+                                if home_suggestion:
+                                    elo_name, score, conf = home_suggestion
+                                    missing_info.append(f"{kambi_match.home_team} (suggested: {elo_name}, {score}% match)")
+                                else:
+                                    missing_info.append(f"{kambi_match.home_team}")
                             if away_match is None:
-                                missing_teams.append(kambi_match.away_team)
-                            status_reason = f"No Elo rating found for: {', '.join(missing_teams)}"
+                                if away_suggestion:
+                                    elo_name, score, conf = away_suggestion
+                                    missing_info.append(f"{kambi_match.away_team} (suggested: {elo_name}, {score}% match)")
+                                else:
+                                    missing_info.append(f"{kambi_match.away_team}")
+                            status_reason = "Need team mapping: " + ", ".join(missing_info)
                             no_elo_count += 1
                         else:
                             # Successfully matched both teams - calculate EV
@@ -1403,7 +1418,8 @@ if st.session_state.get('data_fetched', False):
                     'status_reason': status_reason,
                     'elo_probs': elo_probs,
                     'ev_analysis': ev_analysis,
-                    'best_ev': best_ev_value
+                    'best_ev': best_ev_value,
+                    'suggestions': suggestions  # Include fuzzy match suggestions
                 })
 
             # Display summary statistics
@@ -1468,12 +1484,13 @@ if st.session_state.get('data_fetched', False):
             st.markdown("---")
 
             # Display each match with status-aware rendering
-            for match_data in display_list:
+            for idx, match_data in enumerate(display_list):
                 kambi_match = match_data['match']
                 status = match_data['status']
                 status_reason = match_data['status_reason']
                 elo_probs = match_data['elo_probs']
                 ev_analysis = match_data['ev_analysis']
+                suggestions = match_data.get('suggestions', {})
 
                 # Status indicator color and icon
                 if status == 'matched':
@@ -1512,6 +1529,31 @@ if st.session_state.get('data_fetched', False):
                         else:
                             # Show status reason for unmatched
                             st.warning(status_reason)
+
+                    # Show inline mapping suggestions for unmatched teams
+                    if status == 'no_elo' and suggestions:
+                        st.markdown("#### 💡 Suggested Mappings")
+                        mapping_service = get_mapping_service()
+
+                        for team_type in ['home', 'away']:
+                            if team_type in suggestions:
+                                elo_name, score, confidence = suggestions[team_type]
+                                kambi_team = kambi_match.home_team if team_type == 'home' else kambi_match.away_team
+
+                                col_sugg1, col_sugg2 = st.columns([3, 1])
+                                with col_sugg1:
+                                    st.info(f"**{kambi_team}** → **{elo_name}** ({score}% match, {confidence})")
+                                with col_sugg2:
+                                    button_key = f"accept_mapping_{idx}_{team_type}"
+                                    if st.button("✅ Accept", key=button_key, type="primary"):
+                                        mapping_service.add_mapping(
+                                            kambi_team_name=kambi_team,
+                                            elo_team_name=elo_name,
+                                            league_filter=selected_league,
+                                            confidence=confidence
+                                        )
+                                        st.success(f"✅ Saved! Refresh to see updated match.")
+                                        st.info("💡 Tip: Reload the page to re-analyze this match with the new mapping.")
 
                     # Only show detailed analysis for matched matches
                     if status == 'matched':
