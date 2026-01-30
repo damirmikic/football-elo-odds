@@ -15,6 +15,8 @@ import streamlit as st
 from bs4 import BeautifulSoup
 
 import config
+from ev_calculator import analyze_match_ev, kelly_criterion
+from kambi_client import KambiClient
 from odds import calculate_poisson_markets_from_dnb
 
 # Set page title and icon
@@ -99,6 +101,16 @@ def normalize_league_key(name: str) -> str:
         Normalized league name
     """
     return re.sub(r"\s+", " ", str(name)).strip()
+
+
+@st.cache_resource
+def get_kambi_client() -> KambiClient:
+    """Get cached Kambi API client.
+
+    Returns:
+        KambiClient instance
+    """
+    return KambiClient()
 
 
 @st.cache_data
@@ -1026,6 +1038,115 @@ if st.session_state.get('data_fetched', False):
             btts_card_cols = st.columns(2)
             btts_card_cols[0].markdown(f"<div class='card'><div class='card-title'>BTTS - Yes</div><div class='card-value'>{btts_yes_odds:.2f}</div></div>", unsafe_allow_html=True)
             btts_card_cols[1].markdown(f"<div class='card'><div class='card-title'>BTTS - No</div><div class='card-value'>{btts_no_odds:.2f}</div></div>", unsafe_allow_html=True)
+
+        # --- Bookmaker Odds Comparison & EV ---
+        with st.expander("💰 Bookmaker Odds & Expected Value (EV)", expanded=True):
+            st.markdown("**Live Bookmaker Odds from Kambi**")
+
+            # Try to fetch odds from Kambi
+            kambi = get_kambi_client()
+
+            with st.spinner("Fetching live bookmaker odds..."):
+                kambi_match = kambi.find_match(
+                    home_team_name,
+                    away_team_name,
+                    league=selected_league
+                )
+
+            if kambi_match and kambi_match.has_odds:
+                # Display bookmaker info
+                st.success(f"✓ Found live odds for {kambi_match.home_team} vs {kambi_match.away_team}")
+
+                info_cols = st.columns(3)
+                info_cols[0].metric("League", kambi_match.league)
+                info_cols[1].metric("Kickoff", kambi_match.start_time.strftime("%d %b %H:%M UTC"))
+                info_cols[2].metric("Bookmaker Margin", f"{kambi_match.bookmaker_margin:.2f}%")
+
+                st.markdown("---")
+
+                # Prepare data for EV analysis
+                elo_probs = {
+                    'home': poisson_probs['home'],
+                    'draw': poisson_probs['draw'],
+                    'away': poisson_probs['away']
+                }
+
+                bookmaker_odds_dict = {
+                    'home': kambi_match.odds_home,
+                    'draw': kambi_match.odds_draw,
+                    'away': kambi_match.odds_away
+                }
+
+                # Calculate EV
+                ev_analysis = analyze_match_ev(elo_probs, bookmaker_odds_dict)
+
+                # Display comparison table
+                st.markdown("**Odds Comparison & Expected Value**")
+
+                comparison_data = {
+                    'Outcome': ['Home (1)', 'Draw (X)', 'Away (2)'],
+                    'Elo Prob': [f"{elo_probs['home']:.2%}", f"{elo_probs['draw']:.2%}", f"{elo_probs['away']:.2%}"],
+                    'Elo Fair Odds': [f"{1/elo_probs['home']:.2f}", f"{1/elo_probs['draw']:.2f}", f"{1/elo_probs['away']:.2f}"],
+                    'Bookmaker Odds': [f"{kambi_match.odds_home:.2f}", f"{kambi_match.odds_draw:.2f}", f"{kambi_match.odds_away:.2f}"],
+                    'Implied Prob': [f"{ev_analysis.home_ev.implied_probability:.2%}", f"{ev_analysis.draw_ev.implied_probability:.2%}", f"{ev_analysis.away_ev.implied_probability:.2%}"],
+                    'Expected Value': [ev_analysis.home_ev.ev_percentage_str, ev_analysis.draw_ev.ev_percentage_str, ev_analysis.away_ev.ev_percentage_str],
+                }
+
+                comparison_df = pd.DataFrame(comparison_data)
+
+                # Style the dataframe with color coding
+                def highlight_ev(row):
+                    ev_str = row['Expected Value']
+                    ev_val = float(ev_str.replace('%', '').replace('+', '')) / 100
+
+                    if ev_val > 0.05:  # >5% EV
+                        color = '#90EE90'  # Light green
+                    elif ev_val > 0:  # Positive but small
+                        color = '#FFFFE0'  # Light yellow
+                    elif ev_val < -0.05:  # Bad value
+                        color = '#FFB6C6'  # Light red
+                    else:
+                        color = ''
+
+                    return [f'background-color: {color}' if color else '' for _ in row]
+
+                st.dataframe(
+                    comparison_df.style.apply(highlight_ev, axis=1),
+                    hide_index=True,
+                    use_container_width=True
+                )
+
+                st.markdown("---")
+
+                # Highlight best value bet
+                if ev_analysis.has_any_value:
+                    best = ev_analysis.best_value
+                    st.success(f"🎯 **Best Value Bet:** {best.outcome.upper()} @ {best.bookmaker_odds:.2f} (EV: {best.ev_percentage_str}, Edge: {best.edge_percentage_str})")
+
+                    # Kelly Criterion suggestion
+                    kelly_full = kelly_criterion(best.true_probability, best.bookmaker_odds, fraction=1.0)
+                    kelly_quarter = kelly_criterion(best.true_probability, best.bookmaker_odds, fraction=0.25)
+                    kelly_half = kelly_criterion(best.true_probability, best.bookmaker_odds, fraction=0.5)
+
+                    st.info(f"**Kelly Criterion Staking:**\n\n"
+                            f"• Full Kelly: {kelly_full:.2%} of bankroll\n\n"
+                            f"• Half Kelly: {kelly_half:.2%} of bankroll (moderate)\n\n"
+                            f"• Quarter Kelly: {kelly_quarter:.2%} of bankroll (conservative)")
+                else:
+                    st.warning("⚠️ No positive expected value found on any outcome.")
+
+                # Color legend
+                st.markdown("---")
+                st.caption("🟢 Green: Strong value (EV > 5%) | 🟡 Yellow: Slight value (0% < EV < 5%) | 🔴 Red: Poor value (EV < -5%)")
+
+            elif kambi_match and not kambi_match.has_odds:
+                st.warning(f"⚠️ Match found but odds not available yet for {kambi_match.home_team} vs {kambi_match.away_team}")
+            else:
+                st.info("ℹ️ Match not found in Kambi. This could mean:\n"
+                        "- The match hasn't been listed yet\n"
+                        "- Team names don't match exactly\n"
+                        "- League not covered by Kambi\n\n"
+                        "**Manual Odds Input** (coming soon)")
 
         with st.expander("📋 Interactive Lineups", expanded=True):
             col1, col2 = st.columns(2)
