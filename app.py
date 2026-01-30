@@ -976,7 +976,7 @@ if st.session_state.get('data_fetched', False):
     )
 
     # --- Main Tabs ---
-    tab1, tab2, tab3 = st.tabs(["Single Match Analysis", "Multi-Match Calculator", "⚙️ Team Mapping Admin"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Single Match Analysis", "Multi-Match Calculator", "⚙️ Team Mapping Admin", "🗺️ Match & League Mapping"])
 
     with tab1:
         with st.expander("📈 League-Wide Stats", expanded=True):
@@ -1878,6 +1878,326 @@ if st.session_state.get('data_fetched', False):
 
             else:
                 st.success("✅ No unmapped teams! All recent teams were matched successfully.")
+
+    with tab4:
+        st.header("🗺️ Match & League Mapping")
+        st.markdown("""
+        View all upcoming matches with their leagues and map both teams and leagues to your ELO ratings database.
+        Accept suggestions or create custom mappings.
+        """)
+
+        # Fetch all matches
+        with st.spinner("Fetching all football matches..."):
+            kambi = KambiClient()
+            all_matches = kambi.get_all_football_matches()
+
+        if not all_matches:
+            st.warning("⚠️ No matches found. Please try again later.")
+        else:
+            st.success(f"✅ Found {len(all_matches)} upcoming matches")
+
+            # Load available league keys for mapping suggestions
+            stats_data = load_league_stats()
+            available_league_keys = list(stats_data.keys())
+
+            # Create mapping service
+            mapping_service = get_mapping_service()
+
+            # Tabs for different views
+            view_tab1, view_tab2, view_tab3 = st.tabs(["📋 All Matches", "⚙️ League Mappings", "📊 Statistics"])
+
+            with view_tab1:
+                st.subheader("All Upcoming Matches")
+
+                # Filter options
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    search_query = st.text_input("🔍 Search matches (team or league)", "")
+                with col2:
+                    show_mapped_only = st.checkbox("Show only unmapped", value=False)
+
+                # Process matches and create display data
+                matches_data = []
+                for match in all_matches:
+                    # Check team mappings
+                    home_mapped = mapping_service.get_mapping(match.home_team, match.league)
+                    away_mapped = mapping_service.get_mapping(match.away_team, match.league)
+
+                    # Check league mapping
+                    league_mapped = mapping_service.get_league_mapping(match.league)
+
+                    # Get suggestions if not mapped
+                    home_suggestion = None
+                    away_suggestion = None
+                    league_suggestion = None
+
+                    if not home_mapped and team_list:
+                        home_sugg = mapping_service.suggest_mapping(match.home_team, team_list, auto_save=False, league_filter=match.league)
+                        if home_sugg:
+                            home_suggestion = f"{home_sugg[0]} ({home_sugg[1]}%)"
+
+                    if not away_mapped and team_list:
+                        away_sugg = mapping_service.suggest_mapping(match.away_team, team_list, auto_save=False, league_filter=match.league)
+                        if away_sugg:
+                            away_suggestion = f"{away_sugg[0]} ({away_sugg[1]}%)"
+
+                    if not league_mapped and available_league_keys:
+                        league_sugg = mapping_service.suggest_league_mapping(match.league, available_league_keys, auto_save=False)
+                        if league_sugg:
+                            league_suggestion = f"{league_sugg[0]} ({league_sugg[1]}%)"
+
+                    # Apply filters
+                    if search_query:
+                        search_lower = search_query.lower()
+                        if not (search_lower in match.home_team.lower() or
+                                search_lower in match.away_team.lower() or
+                                search_lower in match.league.lower()):
+                            continue
+
+                    if show_mapped_only:
+                        if home_mapped and away_mapped and league_mapped:
+                            continue
+
+                    matches_data.append({
+                        'match': match,
+                        'home_mapped': home_mapped,
+                        'away_mapped': away_mapped,
+                        'league_mapped': league_mapped,
+                        'home_suggestion': home_suggestion,
+                        'away_suggestion': away_suggestion,
+                        'league_suggestion': league_suggestion
+                    })
+
+                st.write(f"Showing {len(matches_data)} matches")
+
+                # Display matches
+                for idx, match_data in enumerate(matches_data):
+                    match = match_data['match']
+
+                    with st.expander(
+                        f"⚽ {match.home_team} vs {match.away_team} - {match.league}",
+                        expanded=False
+                    ):
+                        # Match info
+                        col1, col2, col3 = st.columns([2, 2, 1])
+                        with col1:
+                            st.write(f"**Home:** {match.home_team}")
+                            if match_data['home_mapped']:
+                                st.success(f"✅ Mapped to: {match_data['home_mapped']}")
+                            elif match_data['home_suggestion']:
+                                st.info(f"💡 Suggestion: {match_data['home_suggestion']}")
+                                if st.button("Accept", key=f"accept_home_{idx}"):
+                                    sugg_name = match_data['home_suggestion'].split(" (")[0]
+                                    mapping_service.add_mapping(match.home_team, sugg_name, match.league, "auto_high")
+                                    st.success(f"✅ Mapped {match.home_team} → {sugg_name}")
+                                    st.rerun()
+                            else:
+                                st.warning("⚠️ No mapping or suggestion")
+
+                        with col2:
+                            st.write(f"**Away:** {match.away_team}")
+                            if match_data['away_mapped']:
+                                st.success(f"✅ Mapped to: {match_data['away_mapped']}")
+                            elif match_data['away_suggestion']:
+                                st.info(f"💡 Suggestion: {match_data['away_suggestion']}")
+                                if st.button("Accept", key=f"accept_away_{idx}"):
+                                    sugg_name = match_data['away_suggestion'].split(" (")[0]
+                                    mapping_service.add_mapping(match.away_team, sugg_name, match.league, "auto_high")
+                                    st.success(f"✅ Mapped {match.away_team} → {sugg_name}")
+                                    st.rerun()
+                            else:
+                                st.warning("⚠️ No mapping or suggestion")
+
+                        with col3:
+                            st.write(f"**Start:** {match.start_time}")
+
+                        # League mapping
+                        st.markdown("---")
+                        st.write(f"**League:** {match.league}")
+                        if match_data['league_mapped']:
+                            st.success(f"✅ Mapped to: {match_data['league_mapped']}")
+                        elif match_data['league_suggestion']:
+                            st.info(f"💡 Suggestion: {match_data['league_suggestion']}")
+                            if st.button("Accept League Mapping", key=f"accept_league_{idx}"):
+                                sugg_league = match_data['league_suggestion'].split(" (")[0]
+                                mapping_service.add_league_mapping(match.league, sugg_league, "auto_high")
+                                st.success(f"✅ Mapped {match.league} → {sugg_league}")
+                                st.rerun()
+                        else:
+                            st.warning("⚠️ No league mapping or suggestion")
+
+                        # Custom mapping options
+                        st.markdown("---")
+                        st.subheader("Custom Mapping")
+
+                        map_col1, map_col2 = st.columns(2)
+                        with map_col1:
+                            if not match_data['home_mapped'] and team_list:
+                                custom_home = st.selectbox(
+                                    "Map home team to:",
+                                    [""] + team_list,
+                                    key=f"custom_home_{idx}"
+                                )
+                                if custom_home and st.button("Map Home", key=f"map_home_{idx}"):
+                                    mapping_service.add_mapping(match.home_team, custom_home, match.league, "manual")
+                                    st.success(f"✅ Mapped {match.home_team} → {custom_home}")
+                                    st.rerun()
+
+                        with map_col2:
+                            if not match_data['away_mapped'] and team_list:
+                                custom_away = st.selectbox(
+                                    "Map away team to:",
+                                    [""] + team_list,
+                                    key=f"custom_away_{idx}"
+                                )
+                                if custom_away and st.button("Map Away", key=f"map_away_{idx}"):
+                                    mapping_service.add_mapping(match.away_team, custom_away, match.league, "manual")
+                                    st.success(f"✅ Mapped {match.away_team} → {custom_away}")
+                                    st.rerun()
+
+                        if not match_data['league_mapped'] and available_league_keys:
+                            custom_league = st.selectbox(
+                                "Map league to:",
+                                [""] + available_league_keys,
+                                key=f"custom_league_{idx}"
+                            )
+                            if custom_league and st.button("Map League", key=f"map_league_{idx}"):
+                                mapping_service.add_league_mapping(match.league, custom_league, "manual")
+                                st.success(f"✅ Mapped {match.league} → {custom_league}")
+                                st.rerun()
+
+            with view_tab2:
+                st.subheader("League Mapping Management")
+
+                # Display all league mappings
+                league_mappings = mapping_service.get_all_league_mappings()
+
+                if league_mappings:
+                    st.write(f"**Total League Mappings:** {len(league_mappings)}")
+
+                    # Create dataframe for display
+                    mapping_df = pd.DataFrame([{
+                        'ID': m.id,
+                        'Kambi League': m.kambi_league_name,
+                        'ELO League Key': m.elo_league_key,
+                        'Confidence': m.confidence,
+                        'Updated': m.updated_at.strftime('%Y-%m-%d %H:%M') if isinstance(m.updated_at, datetime) else m.updated_at
+                    } for m in league_mappings])
+
+                    st.dataframe(mapping_df, use_container_width=True)
+
+                    # Delete mapping
+                    st.markdown("---")
+                    st.subheader("Delete League Mapping")
+                    delete_id = st.number_input("Enter mapping ID to delete:", min_value=1, step=1, key="delete_league_id")
+                    if st.button("🗑️ Delete League Mapping", type="secondary"):
+                        if mapping_service.delete_league_mapping(delete_id):
+                            st.success(f"✅ Deleted league mapping ID {delete_id}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ No league mapping found with ID {delete_id}")
+
+                    # Export/Import
+                    st.markdown("---")
+                    st.subheader("Export/Import League Mappings")
+
+                    export_col, import_col = st.columns(2)
+                    with export_col:
+                        if st.button("📥 Export League Mappings"):
+                            export_data = mapping_service.export_league_mappings()
+                            st.download_button(
+                                label="Download JSON",
+                                data=json.dumps(export_data, indent=2),
+                                file_name="league_mappings.json",
+                                mime="application/json"
+                            )
+
+                    with import_col:
+                        uploaded_file = st.file_uploader("Upload league mappings JSON", type=['json'], key="import_league")
+                        if uploaded_file:
+                            import_data = json.load(uploaded_file)
+                            if st.button("📤 Import League Mappings"):
+                                mapping_service.import_league_mappings(import_data)
+                                st.success(f"✅ Imported {len(import_data)} league mappings")
+                                st.rerun()
+                else:
+                    st.info("No league mappings yet. Start mapping leagues from the 'All Matches' tab.")
+
+                # Show unmapped leagues
+                st.markdown("---")
+                st.subheader("Unmapped Leagues")
+                unmapped_leagues = mapping_service.get_unmapped_leagues()
+
+                if unmapped_leagues:
+                    st.write(f"**Found {len(unmapped_leagues)} unmapped leagues**")
+
+                    unmapped_df = pd.DataFrame([{
+                        'League Name': ul['league_name'],
+                        'Occurrences': ul['occurrence_count'],
+                        'Last Seen': ul['last_seen']
+                    } for ul in unmapped_leagues])
+
+                    st.dataframe(unmapped_df, use_container_width=True)
+                else:
+                    st.success("✅ No unmapped leagues!")
+
+            with view_tab3:
+                st.subheader("Mapping Statistics")
+
+                # Team mapping stats
+                all_team_mappings = mapping_service.get_all_mappings()
+                team_stats = {
+                    'manual': sum(1 for m in all_team_mappings if m.confidence == 'manual'),
+                    'auto_high': sum(1 for m in all_team_mappings if m.confidence == 'auto_high'),
+                    'auto_medium': sum(1 for m in all_team_mappings if m.confidence == 'auto_medium'),
+                    'auto_low': sum(1 for m in all_team_mappings if m.confidence == 'auto_low')
+                }
+
+                # League mapping stats
+                all_league_mappings = mapping_service.get_all_league_mappings()
+                league_stats_data = {
+                    'manual': sum(1 for m in all_league_mappings if m.confidence == 'manual'),
+                    'auto_high': sum(1 for m in all_league_mappings if m.confidence == 'auto_high'),
+                    'auto_medium': sum(1 for m in all_league_mappings if m.confidence == 'auto_medium'),
+                    'auto_low': sum(1 for m in all_league_mappings if m.confidence == 'auto_low')
+                }
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.metric("Total Team Mappings", len(all_team_mappings))
+                    st.write("**By Confidence:**")
+                    st.write(f"- Manual: {team_stats['manual']}")
+                    st.write(f"- Auto High: {team_stats['auto_high']}")
+                    st.write(f"- Auto Medium: {team_stats['auto_medium']}")
+                    st.write(f"- Auto Low: {team_stats['auto_low']}")
+
+                with col2:
+                    st.metric("Total League Mappings", len(all_league_mappings))
+                    st.write("**By Confidence:**")
+                    st.write(f"- Manual: {league_stats_data['manual']}")
+                    st.write(f"- Auto High: {league_stats_data['auto_high']}")
+                    st.write(f"- Auto Medium: {league_stats_data['auto_medium']}")
+                    st.write(f"- Auto Low: {league_stats_data['auto_low']}")
+
+                # Coverage stats
+                st.markdown("---")
+                st.subheader("Coverage Analysis")
+
+                total_matches = len(all_matches)
+                teams_with_mapping = sum(1 for m in matches_data if m['home_mapped'] and m['away_mapped'])
+                leagues_with_mapping = sum(1 for m in matches_data if m['league_mapped'])
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Matches", total_matches)
+                col2.metric("Fully Mapped Teams", teams_with_mapping)
+                col3.metric("Mapped Leagues", leagues_with_mapping)
+
+                if total_matches > 0:
+                    team_coverage = (teams_with_mapping / total_matches) * 100
+                    league_coverage = (leagues_with_mapping / total_matches) * 100
+                    st.progress(team_coverage / 100, text=f"Team Coverage: {team_coverage:.1f}%")
+                    st.progress(league_coverage / 100, text=f"League Coverage: {league_coverage:.1f}%")
 
 
 else:
