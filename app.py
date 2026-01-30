@@ -904,10 +904,6 @@ with st.sidebar.expander("✨ Quick Guide", expanded=True):
 
 st.sidebar.header("🎯 Build Your Matchup")
 
-# --- Session State Initialization ---
-if 'data_fetched' not in st.session_state: st.session_state['data_fetched'] = False
-if 'current_selection' not in st.session_state: st.session_state['current_selection'] = None
-
 def fetch_data_for_selection(country: str, league: str) -> None:
     """Callback to fetch all data for a newly selected league.
 
