@@ -37,3 +37,13 @@ Updating the statistics only requires editing the files in `data/`.
 ## Revamp proposal
 
 For a full architecture and migration plan, see `docs/revamp_plan.md`.
+
+## Revamp progress
+
+Initial revamp scaffolding is now in place under `src/football_elo_odds/`, including:
+- typed domain models for match input/output contracts,
+- extracted match outcome probability engine,
+- match analysis service use-case,
+- centralized application error hierarchy and UI error mapper.
+
+This is the first implementation slice from `docs/revamp_plan.md` and is covered by new unit tests in `tests/test_revamp_match_analysis.py`.
