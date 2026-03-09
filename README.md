@@ -33,3 +33,7 @@ Country - League Name,0,0.00,0.00,0.00,0.00,0.00,0.00
 ```
 
 Updating the statistics only requires editing the files in `data/`.
+
+## Revamp proposal
+
+For a full architecture and migration plan, see `docs/revamp_plan.md`.
