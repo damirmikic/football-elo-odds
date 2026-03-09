@@ -1,0 +1,4 @@
+[browser]
+# Avoid Streamlit telemetry / page profiling traffic that can trigger noisy
+# frontend console errors in some embedded/session bootstrap flows.
+gatherUsageStats = false
